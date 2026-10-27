@@ -14,6 +14,9 @@ import { GREAT_WHITE_BODY_AREA } from "./anatomy";
 export const SPINE_NODES = 22;
 const NPC_TURN_SECONDS = 0.45;
 const PLAYER_TURN_SECONDS = 0.5;
+const SHARK_FIRST_PASS = [18, 24] as const;
+const SHARK_PASS_INTERVAL = [24, 36] as const;
+const PREDATOR_TURN_CHANCE = 0.2;
 
 export type GoldKind =
   | "ryukin" | "oranda" | "moor" | "fantail" | "pearl" | "calico"
@@ -388,8 +391,8 @@ export class World {
       shark.kind = "shark";
       shark.size = foodSize("shark");
       shark.length = this.gameLength(shark.size, shark.kind);
-      // 鲨鱼延迟入场，给玩家几秒安全期，再慢慢逼近。
-      shark.respawnAt = this.time + rand(5, 8);
+      // Leave time to learn movement and feed before the first shark pass.
+      shark.respawnAt = this.time + rand(...SHARK_FIRST_PASS);
     }
     if (koi) {
       koi.kind = "koi";
@@ -539,7 +542,7 @@ export class World {
           ? nose > width + pad && tail > width + pad
           : nose < -pad && tail < -pad;
       if (outAhead && !g.isPlayer && !this.biteLocks.has(g)) {
-        if (g.respawnAt === 0) g.respawnAt = this.time + rand(0.5, 3);
+        if (g.respawnAt === 0) g.respawnAt = this.time + this.nextPassDelay(g, 0.5, 3);
         continue;
       }
       const want = clamp(g.nodes[1], L * 0.55, Math.max(L * 0.55, height - L * 0.55));
@@ -614,7 +617,8 @@ export class World {
         drift: rand(0, TAU),
         wander: rand(0, TAU),
         direction,
-        respawnAt: onScreen ? 0 : this.time + rand(0.2, 0.6) + (i - 3) * rand(0.55, 1.05),
+        respawnAt: kind === "shark" ? this.time + rand(...SHARK_FIRST_PASS)
+          : onScreen ? 0 : this.time + rand(0.2, 0.6) + (i - 3) * rand(0.55, 1.05),
         size: size * foodSize(kind),
         isPlayer: false,
         mouth: 0,
@@ -1053,9 +1057,13 @@ export class World {
           const toward: 1 | -1 = dx > 0 ? 1 : -1;
           const desired: 1 | -1 = mode === "danger" ? toward : toward === 1 ? -1 : 1;
           if (g.turnTo === undefined && Math.abs(dx) > Math.max(8, L * 0.15) && desired !== g.direction && time >= reaction.nextTurn) {
-            g.turnTo = desired;
-            g.turnProgress = 0;
-            reaction.nextTurn = time + 1.5;
+            // A missed turn decision also cools down; rolling every frame would
+            // quickly turn even a small probability into a guaranteed reversal.
+            reaction.nextTurn = time + (mode === "danger" ? rand(5, 8) : 1.5);
+            if (mode !== "danger" || Math.random() < PREDATOR_TURN_CHANCE) {
+              g.turnTo = desired;
+              g.turnProgress = 0;
+            }
           }
           const targetY = mode === "danger" ? player.nodes[1] : hy - Math.sign(dy || 1) * H * 0.25;
           wantY = clamp(targetY, padY, Math.max(padY, H - padY));
@@ -1124,7 +1132,7 @@ export class World {
       const tailX = nodes[(SPINE_NODES - 1) * 2];
       const outAhead = g.direction > 0 ? tailX > W + L * 0.1 : tailX < -L * 0.1;
       if (outAhead) {
-        g.respawnAt = time + rand(0.5, 2.4);
+        g.respawnAt = time + this.nextPassDelay(g, 0.5, 2.4);
         continue;
       }
 
@@ -1349,7 +1357,7 @@ export class World {
 
   /** 被吃掉的鱼：立即搬出画面，下一轮再从边缘入场。 */
   private dismiss(g: Gold) {
-    g.respawnAt = this.time + rand(3, 8);
+    g.respawnAt = this.time + this.nextPassDelay(g, 3, 8);
     // 直接把整条鱼挪到画面外，渲染层也画不到它——猎物"瞬间消失"。
     const L = g.length;
     g.nodes[0] = this.width + L * 2;
@@ -1358,6 +1366,10 @@ export class World {
       g.nodes[k * 2] = g.nodes[(k - 1) * 2] + L / (SPINE_NODES - 1);
       g.nodes[k * 2 + 1] = g.nodes[(k - 1) * 2 + 1];
     }
+  }
+
+  private nextPassDelay(g: Gold, min: number, max: number) {
+    return g.kind === "shark" ? rand(...SHARK_PASS_INTERVAL) : rand(min, max);
   }
 
   /**

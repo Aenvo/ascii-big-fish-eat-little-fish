@@ -196,6 +196,8 @@ interface GoldShape {
   wen: [number, number] | null;
   marks: "none" | "calico" | "pearl" | "clown" | "butterfly" | "puffer" | "tang" | "lionfish" | "barracuda" | "octopus" | "koi";
   pigment: [number, number, number];
+  /** Colored markings stay legible in blue water without near-black blocks. */
+  markPigment?: [number, number, number];
   tailPigment?: [number, number, number];
   wenPigment?: [number, number, number];
   ink: number;
@@ -320,6 +322,7 @@ const SHAPES: Record<GoldKind, GoldShape> = {
     wen: null,
     marks: "calico",
     pigment: [242, 112, 24],
+    markPigment: [81, 105, 125],
     ink: 0.16,
   },
   // 小丑鱼：橙身三道白色竖纹（头后、身中、尾柄前），带黑边。体小而
@@ -374,6 +377,7 @@ const SHAPES: Record<GoldKind, GoldShape> = {
     wen: null,
     marks: "none",
     pigment: [105, 122, 130],
+    markPigment: [74, 102, 115],
     ink: 0.5,
   },
   // 高身、长背鳍和腹鳍，让神仙鱼的剪影与圆身金鱼不同。
@@ -408,6 +412,7 @@ const SHAPES: Record<GoldKind, GoldShape> = {
     wen: null,
     marks: "barracuda",
     pigment: [125, 186, 180],
+    markPigment: [79, 134, 137],
     ink: 0.28,
   },
   // 蝴蝶鱼：高身、短吻和斜向条纹。
@@ -419,7 +424,7 @@ const SHAPES: Record<GoldKind, GoldShape> = {
     dorsal: [0.23, 0.61], dorsalHeight: 0.14,
     tail: { root: 0.72, span: 0.23, flare: 0.62, fork: 0.12 },
     eye: [0.075, 0.115], eyeAcross: 0.3, wen: null,
-    marks: "butterfly", pigment: [244, 205, 48], ink: 0.18,
+    marks: "butterfly", pigment: [244, 205, 48], markPigment: [145, 117, 58], ink: 0.18,
   },
   // 刺豚：圆鼓身体、短小尾鳍与斑点。
   puffer: {
@@ -430,7 +435,7 @@ const SHAPES: Record<GoldKind, GoldShape> = {
     dorsal: [0.59, 0.74], dorsalHeight: 0.07,
     tail: { root: 0.79, span: 0.17, flare: 0.52, fork: 0.04 },
     eye: [0.08, 0.13], eyeAcross: 0.3, wen: null,
-    marks: "puffer", pigment: [209, 171, 98], ink: 0.24,
+    marks: "puffer", pigment: [209, 171, 98], markPigment: [139, 108, 71], ink: 0.24,
   },
   // 蓝倒吊：蓝身、深色标记和黄色尾鳍。
   tang: {
@@ -441,7 +446,7 @@ const SHAPES: Record<GoldKind, GoldShape> = {
     dorsal: [0.25, 0.67], dorsalHeight: 0.115,
     tail: { root: 0.75, span: 0.22, flare: 0.75, fork: 0.22 },
     eye: [0.075, 0.115], eyeAcross: 0.3, wen: null,
-    marks: "tang", pigment: [55, 128, 229], tailPigment: [245, 209, 55], ink: 0.18,
+    marks: "tang", pigment: [55, 128, 229], markPigment: [48, 88, 152], tailPigment: [245, 209, 55], ink: 0.18,
   },
   // 狮子鱼：宽大的鳍、较高的背鳍与红褐色竖纹。
   lionfish: {
@@ -452,7 +457,7 @@ const SHAPES: Record<GoldKind, GoldShape> = {
     dorsal: [0.18, 0.63], dorsalHeight: 0.24,
     tail: { root: 0.7, span: 0.28, flare: 0.8, fork: 0.08 },
     eye: [0.075, 0.12], eyeAcross: 0.3, wen: null,
-    marks: "lionfish", pigment: [194, 105, 78], ink: 0.26,
+    marks: "lionfish", pigment: [194, 105, 78], markPigment: [139, 78, 64], ink: 0.26,
   },
   // Eight flexible arms trail a rounded mantle during mantle-first swimming.
   octopus: {
@@ -558,6 +563,7 @@ export class AsciiRenderer {
   private goldVN = new Float32Array(0);
   private goldDepth = new Float32Array(0);
   private goldKind = new Uint8Array(0);
+  private goldPlayer = new Uint8Array(0);
   /** 被鱼影压暗的格子。 */
   private goldShadow = new Uint8Array(0);
   private spine = new Float32Array(SPINE_NODES * 2);
@@ -680,6 +686,7 @@ export class AsciiRenderer {
       this.goldVN = new Float32Array(n);
       this.goldDepth = new Float32Array(n);
       this.goldKind = new Uint8Array(n);
+      this.goldPlayer = new Uint8Array(n);
       this.goldShadow = new Uint8Array(n);
       this.fishStamp = new Uint32Array(n);
       this.weedStamp = new Uint32Array(n);
@@ -752,12 +759,12 @@ export class AsciiRenderer {
     for (let i = 0; i < 6; i++) {
       const phase = i * 1.73;
       const x = W * (-0.13 + i * 0.245 + Math.sin(t * 0.12 + phase) * 0.035);
-      const width = W * (0.16 + hash3(i, 5, 71) * 0.12);
-      const length = H * (0.85 + hash3(i, 9, 31) * 0.45);
+      const width = W * (0.16 + hash3(i, 5, 71) * 0.12) * (1 + Math.sin(t * 0.26 + phase) * 0.28);
+      const length = H * (0.85 + hash3(i, 9, 31) * 0.45) * (1 + Math.sin(t * 0.19 + phase) * 0.12);
       ctx.save();
       ctx.translate(x, -H * 0.04);
-      ctx.rotate(-0.21 + Math.sin(t * 0.095 + phase) * 0.055);
-      ctx.globalAlpha = 0.33 + Math.sin(t * 0.17 + phase) * 0.10;
+      ctx.rotate(-0.21 + Math.sin(t * 0.17 + phase) * 0.09 + Math.sin(t * 0.47 + phase) * 0.012);
+      ctx.globalAlpha = 0.13 + (0.5 + Math.sin(t * 0.38 + phase) * 0.5) * 0.36;
       ctx.drawImage(this.lightBeam, -width / 2, 0, width, length);
       ctx.restore();
     }
@@ -1618,7 +1625,7 @@ export class AsciiRenderer {
    * 每个格子做超采样。完全覆盖的格子画成实心鱼身，部分覆盖的画成描边字符。
    */
   private rasterizeGolds(golds: Gold[], t: number) {
-    const { goldFlag, goldShade, goldKey, goldDepth, goldKind, goldShadow, goldS, goldVN, spine, arc, cw, ch, cols, rows } = this;
+    const { goldFlag, goldShade, goldKey, goldDepth, goldKind, goldPlayer, goldShadow, goldS, goldVN, spine, arc, cw, ch, cols, rows } = this;
     goldFlag.fill(0);
     goldShadow.fill(0);
 
@@ -1757,6 +1764,7 @@ export class AsciiRenderer {
           goldVN[i] = v / L;
           goldDepth[i] = g.depth;
           goldKind[i] = kindIndex;
+          goldPlayer[i] = g.isPlayer ? 1 : 0;
 
           if (centerHit && coverage >= 0.42) {
             goldFlag[i] = flag;
@@ -1787,13 +1795,11 @@ export class AsciiRenderer {
    *   ③ 收边  被鱼盖住一半的格子不铺彩，只落一个小小的标点。一串这样的
    *           点就是轮廓：近看是点，退开一步就是线。
    *
-   * 所有颜色都从一个数推出来：`pigment`，这条鱼的本色。亮部把纸白往本色
-   * 里调四分之一（纸被染了一层水彩），暗部把本色压到三成（浓墨），字永远
-   * 是本色乘 0.28。所以不管哪条鱼，它身上最深的字就是**它自己的颜色调暗**，
-   * 不是一律的黑色——一缸五条鱼，五套墨。
+   * 鱼身、斑纹和鳍条共用各鱼种的色系；NPC 的暗部保留色相与水下反光，
+   * 避免把条纹和字符重复压暗成黑色网点。主角沿用原有配色。
    */
   private drawGolds(t: number) {
-    const { ctx, cols, rows, cw, ch, goldFlag, goldShade, goldKey, goldDepth, goldKind, goldS } = this;
+    const { ctx, cols, rows, cw, ch, goldFlag, goldShade, goldKey, goldDepth, goldKind, goldPlayer, goldS } = this;
     const n = cols * rows;
     const flick = Math.floor(t * 6);
     // 色块内缩的半像素。在 8~9 px 的格子上，这样留出来的缝刚好是一条
@@ -1811,9 +1817,11 @@ export class AsciiRenderer {
       const cy = y + ch / 2 + 1;
       const key = goldKey[i];
       const shape = SHAPES[KINDS[goldKind[i]]];
+      const player = goldPlayer[i] === 1;
       const wen = flag === FLAG_WEN && shape.wenPigment;
       const tail = flag === FLAG_FIN && goldS[i] >= shape.tail.root && shape.tailPigment;
-      const [pr, pg, pb] = wen ? shape.wenPigment! : tail ? shape.tailPigment! : shape.pigment;
+      const marking = !player && flag === FLAG_MARK && shape.markPigment;
+      const [pr, pg, pb] = marking ? shape.markPigment! : wen ? shape.wenPigment! : tail ? shape.tailPigment! : shape.pigment;
       const ink = clamp(1 - goldShade[i], 0, 1);
       // 远一点的鱼整体淡一档，一缸水才有前后。
       const dim = 0.72 + 0.28 * goldDepth[i];
@@ -1857,13 +1865,16 @@ export class AsciiRenderer {
         const lg = 251 + (hg - 251) * lightMix;
         const lb = 247 + (hb - 247) * lightMix;
         const t = Math.pow(clamp((ink - 0.22) / 0.68, 0, 1), 1.35);
-        const darkFactor = belly ? 0.8 : 0.52;
-        const markFactor = flag === FLAG_MARK && shape.marks !== "calico" ? 0.32 : 1;
+        const darkFactor = belly ? 0.8 : player ? 0.52 : 0.7;
+        const markFactor = player && flag === FLAG_MARK && shape.marks !== "calico" ? 0.32 : 1;
         const fr = (lr + (pr * darkFactor - lr) * t) * markFactor;
         const fg = (lg + (pg * darkFactor - lg) * t) * markFactor;
         const fb = (lb + (pb * darkFactor - lb) * t) * markFactor;
         const a = flag === FLAG_FIN ? 0.52 + 0.3 * (1 - clamp((goldS[i] - shape.tail.root) / 0.1, 0, 1)) : 1;
-        if (shape === SHAPES.shark && flag === FLAG_BELLY) {
+        if (marking) {
+          const light = (0.88 + 0.12 * goldShade[i]) * dim;
+          ctx.fillStyle = `rgb(${Math.round(pr * light)},${Math.round(pg * light)},${Math.round(pb * light)})`;
+        } else if (shape === SHAPES.shark && flag === FLAG_BELLY) {
           // Great white countershading: a distinctly pale ventral surface.
           const light = (0.94 + 0.06 * goldShade[i]) * dim;
           ctx.fillStyle = `rgb(${Math.round(235 * light)},${Math.round(239 * light)},${Math.round(235 * light)})`;
@@ -1950,12 +1961,15 @@ export class AsciiRenderer {
         weight = lv >= 3 ? 0.9 : lv === 2 ? 0.35 : 0;
       }
 
-      // ③ 字色：本色乘 0.28。暗部的字再压一档，才压得住底下的浓墨块。
+      // NPC glyphs use a colored midtone, including slate gills and fin rays.
+      // Keep the player's established ink and stroke weight unchanged.
       const gs = 0.36 * (ink > 0.6 ? 0.78 : 1);
-      ctx.fillStyle = `rgba(${Math.round(pr * gs)},${Math.round(pg * gs)},${Math.round(pb * gs)},${(0.9 * dim).toFixed(2)})`;
+      ctx.fillStyle = player
+        ? `rgba(${Math.round(pr * gs)},${Math.round(pg * gs)},${Math.round(pb * gs)},${(0.9 * dim).toFixed(2)})`
+        : `rgba(${Math.round(32 + pr * 0.45)},${Math.round(32 + pg * 0.45)},${Math.round(32 + pb * 0.45)},${(0.82 * dim).toFixed(2)})`;
       if (weight) {
         ctx.strokeStyle = ctx.fillStyle;
-        ctx.lineWidth = weight;
+        ctx.lineWidth = player ? weight : weight * 0.3;
         ctx.strokeText(glyph, cx, cy);
       }
       ctx.fillText(glyph, cx, cy);

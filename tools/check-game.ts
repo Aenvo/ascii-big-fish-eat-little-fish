@@ -103,4 +103,73 @@ turningNpc.turnProgress = 0;
 for (let i = 0; i < 30; i++) npcWorld.step(1 / 60);
 assert.equal(turningNpc.turnTo, undefined, "NPCs retain their shorter turn duration");
 assert.equal(turningNpc.direction, -1);
-console.log("PASS: species scales, classification, shark proportions, body contact, movement, eating/growth, predation, restart and separate player/NPC yaw timings");
+
+// First appearance and repeat passes use separate pacing, including restarts.
+const sharkWorld = new World();
+sharkWorld.resize(1280, 800, 12, 18);
+sharkWorld.startGame();
+const delayedShark = sharkWorld.golds.find(g => g.kind === "shark")!;
+const safePlayer = sharkWorld.player!;
+sharkWorld.golds = [safePlayer, delayedShark];
+sharkWorld.fish = [];
+const firstPass = delayedShark.respawnAt;
+assert(firstPass - sharkWorld.time >= 18 && firstPass - sharkWorld.time <= 24);
+for (let i = 0; i < 17 * 60; i++) sharkWorld.step(1 / 60);
+assert(delayedShark.respawnAt > sharkWorld.time, "No shark during the opening feeding period");
+while (sharkWorld.time < firstPass + 1 / 60) sharkWorld.step(1 / 60);
+assert.equal(delayedShark.respawnAt, 0, "The delayed shark must eventually enter");
+delayedShark.direction = 1;
+delayedShark.heading = 0;
+for (let i = 0; i < delayedShark.nodes.length; i += 2) {
+  delayedShark.nodes[i] = 3000 - i;
+  delayedShark.nodes[i + 1] = 400;
+}
+sharkWorld.step(1 / 60);
+const nextPass = delayedShark.respawnAt;
+assert(nextPass - sharkWorld.time >= 24 && nextPass - sharkWorld.time <= 36);
+for (let i = 0; i < 23 * 60; i++) sharkWorld.step(1 / 60);
+assert.equal(delayedShark.respawnAt, nextPass, "A departing shark must not immediately reappear");
+while (sharkWorld.time < nextPass + 1 / 60) sharkWorld.step(1 / 60);
+assert.equal(delayedShark.respawnAt, 0);
+sharkWorld.startGame();
+const restartedShark = sharkWorld.golds.find(g => g.kind === "shark")!;
+assert(restartedShark.respawnAt - sharkWorld.time >= 18, "Restart restores the opening delay");
+
+// Predators usually pass by; a declined reversal must not reroll next frame.
+function pursuingWorld() {
+  const w = new World();
+  w.resize(1280, 800, 12, 18);
+  w.startGame();
+  const hunter = w.golds.find(g => g.kind === "barracuda")!;
+  const player = w.player!;
+  w.golds = [player, hunter];
+  w.fish = [];
+  Object.assign(hunter, { length: 200, direction: 1, heading: 0, respawnAt: 0, turnTo: undefined, strokeUntil: Infinity, nextBubble: Infinity });
+  for (let i = 0; i < hunter.nodes.length; i += 2) {
+    hunter.nodes[i] = 700 - i * 4;
+    hunter.nodes[i + 1] = 280;
+  }
+  player.nodes[0] = 780;
+  player.nodes[1] = 470;
+  w.step(1 / 60);
+  assert(w.isChasing(hunter), "Acquire the player ahead before testing a reversal");
+  player.nodes[0] = 600;
+  return { w, hunter };
+}
+const skippedTurn = pursuingWorld();
+const acceptedTurn = pursuingWorld();
+const savedRandom = Math.random;
+try {
+  Math.random = () => 0.8;
+  skippedTurn.w.step(1 / 60);
+  assert.equal(skippedTurn.hunter.turnTo, undefined, "Most pursuit reversal decisions are declined");
+  Math.random = () => 0;
+  for (let i = 0; i < 30; i++) skippedTurn.w.step(1 / 60);
+  assert.equal(skippedTurn.hunter.turnTo, undefined, "No per-frame reroll after a declined turn");
+  assert.equal(skippedTurn.hunter.direction, 1);
+  acceptedTurn.w.step(1 / 60);
+  assert.equal(acceptedTurn.hunter.turnTo, -1, "Occasional pursuit reversals remain possible");
+  for (let i = 0; i < 30; i++) acceptedTurn.w.step(1 / 60);
+  assert.equal(acceptedTurn.hunter.direction, -1, "An accepted reversal completes normally");
+} finally { Math.random = savedRandom; }
+console.log("PASS: scales, anatomy, movement, eating, restart, turn timings, shark pacing and rare pursuit reversals");
