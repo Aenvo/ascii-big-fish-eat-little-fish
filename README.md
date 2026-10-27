@@ -2,6 +2,8 @@
 
 ASCII 大鱼吃小鱼：使用 TypeScript 和 Canvas 绘制字符鱼群的网页小游戏。移动鼠标控制玩家鱼，吃掉较小的生物成长，避开捕食者。
 
+[在线游玩](https://aenvo.github.io/ascii-big-fish-eat-little-fish/)
+
 ## 本地运行
 
 需要 Node.js 和 npm；开发服务器与构建工具的 Node.js 版本要求见依赖包声明。
@@ -22,6 +24,8 @@ npm run preview
 ```
 
 构建结果位于 `dist/`，可部署到静态站点服务。`preview` 用于本地预览构建结果。
+
+推送 `main` 后，[Pages 工作流](.github/workflows/pages.yml)会自动执行类型检查、游戏模拟检查、构建并部署到 GitHub Pages。
 
 游戏模拟检查覆盖物种尺寸与分类、鲨鱼轮廓、接触判定、玩家移动、吃鱼成长、被捕食及重新开始：
 
