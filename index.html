@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ASCII Big Fish Eat Little Fish</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@600&display=swap" rel="stylesheet" />
+    <style>
+      html, body { margin: 0; height: 100%; background: #05080d; overflow: hidden; }
+      canvas.aquarium { display: block; width: 100vw; height: 100vh; font-family: "Geist Mono", "Cascadia Mono", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", monospace; }
+      /* 暗角：四角沉进黑水里，中间留一块被灯照亮的水。 */
+      .vignette {
+        position: fixed; inset: 0; pointer-events: none;
+        background: radial-gradient(ellipse at 50% 46%, rgba(0,0,0,0) 42%, rgba(0,0,0,0.55) 100%);
+      }
+
+      /* ── 覆盖层（开始 / 结束） ───────────────────────── */
+      .overlay {
+        position: fixed; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; text-align: center;
+        background: rgba(3,5,9,.72); backdrop-filter: blur(3px);
+        font: 600 15px/1.7 "Geist Mono", ui-monospace, Menlo, monospace;
+        color: rgba(190,220,245,.92); letter-spacing: .05em;
+      }
+      .overlay.hidden { display: none; }
+      .overlay h1 {
+        font-size: 34px; margin: 0 0 8px; color: #ffd28a;
+        letter-spacing: .12em; text-shadow: 0 0 22px rgba(255,180,80,.35);
+      }
+      .overlay p { margin: 6px 0; color: rgba(158,196,226,.72); font-size: 13px; }
+      .overlay .big { font-size: 30px; color: #fff; margin: 10px 0; }
+      .overlay button {
+        padding: 11px 26px; cursor: pointer;
+        font: 600 15px/1 "Geist Mono", ui-monospace, Menlo, monospace;
+        letter-spacing: .05em; color: #fff; background: #2563d3;
+        border: none; border-radius: 4px; transition: transform .08s, background .15s;
+      }
+      .overlay button:hover { background: #1d4fb0; transform: translateY(-1px); }
+      .overlay button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+      .overlay .secondary { background: #fff; color: #1a2535; }
+      .overlay .secondary:hover { background: #e8eef8; }
+      .actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+      .start-actions { display: flex; flex-direction: column; align-items: stretch; width: min(260px, 80vw); gap: 10px; margin-top: 4px; }
+      .language-control { display: flex; justify-content: center; align-items: center; gap: 6px; color: #fff; }
+      .language-control svg { width: 16px; height: 16px; }
+      .language-control select { color: #fff; background: transparent; padding: 9px 4px; border: 0; font: 600 13px/1.2 "Geist Mono", ui-monospace, monospace; cursor: pointer; }
+      .language-control option { color: #fff; background: #101e2b; }
+      .overlay .guide-button, .overlay .guide-button:hover { background: transparent; color: #fff; }
+      .language-control select:focus-visible, .catalog-dialog button:focus-visible, .catalog-dialog a:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+      .results { display: flex; justify-content: center; flex-wrap: wrap; gap: 14px 28px; margin: 14px 20px 0; }
+      .results div { min-width: 72px; }
+      .results dt { color: rgba(158,196,226,.72); font-size: 12px; }
+      .results dd { margin: 3px 0 0; color: #e6f0f8; font-size: 17px; }
+
+      .catalog-dialog { box-sizing: border-box; width: min(960px, 94vw); max-width: none; max-height: min(820px, 88vh); padding: 0; border: 1px solid #29445d; border-radius: 12px; background: #0b1520; color: #e6f0f8; font: 500 14px/1.5 "Geist Mono", ui-monospace, Menlo, monospace; }
+      .catalog-dialog::backdrop { background: rgba(1,5,10,.78); }
+      .catalog-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 22px 0; }
+      .catalog-header h2 { margin: 0; color: #ffd28a; font-size: 21px; }
+      .catalog-close { border: 0; border-radius: 4px; background: transparent; color: #e6f0f8; font: 24px/1 sans-serif; padding: 4px 8px; cursor: pointer; }
+      .catalog-close:hover { background: #20354a; }
+      .catalog-note { margin: 5px 22px 12px; color: #a2bed4; font-size: 12px; }
+      .catalog-tabs { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 22px 14px; border-bottom: 1px solid #263c51; }
+      .catalog-tabs button { border: 1px solid #37516a; background: #122232; color: #d3e1eb; border-radius: 5px; padding: 8px 14px; font: inherit; cursor: pointer; }
+      .catalog-tabs button[aria-selected="true"] { background: #2563d3; border-color: #2563d3; color: #fff; }
+      .catalog-body { max-height: min(62vh, 600px); overflow-y: auto; padding: 18px 22px 24px; }
+      .catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px,100%), 1fr)); gap: 14px; }
+      .catalog-card { min-width: 0; overflow: hidden; border: 1px solid #253b50; border-radius: 8px; background: #101e2b; }
+      .catalog-preview { display: block; width: 100%; aspect-ratio: 16 / 9; background: #05080d; image-rendering: pixelated; }
+      .catalog-copy { padding: 12px 14px 15px; }
+      .catalog-copy h3 { color: #f5d69e; font-size: 15px; margin: 0 0 7px; }
+      .catalog-copy p { color: #b9cbd9; font-size: 12px; margin: 0 0 10px; line-height: 1.6; }
+      .catalog-copy a { color: #8ec5ff; font-size: 11px; overflow-wrap: anywhere; }
+      @media (max-width: 480px) { .catalog-header { padding-inline: 16px; } .catalog-note { margin-inline: 16px; } .catalog-tabs { padding-inline: 16px; } .catalog-body { padding-inline: 16px; } }
+
+    </style>
+  </head>
+  <body>
+    <canvas class="aquarium" aria-hidden="true"></canvas>
+    <div class="vignette"></div>
+
+    <div class="overlay" id="startScreen">
+      <h1 id="startTitle">ASCII Big Fish Eat Little Fish</h1>
+      <div class="start-actions">
+        <label class="language-control"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg><select id="languageSelect" aria-label="Language"><option value="en">English</option><option value="zh">中文</option></select></label>
+        <button id="catalogBtn" class="guide-button" type="button">Fish Guide</button>
+        <button id="startBtn" type="button">Start Game</button>
+      </div>
+    </div>
+
+    <dialog class="catalog-dialog" id="catalogDialog" aria-labelledby="catalogTitle" aria-describedby="catalogNote">
+      <div class="catalog-header"><h2 id="catalogTitle">Fish Guide</h2><button class="catalog-close" id="catalogClose" type="button" aria-label="Close">×</button></div>
+      <p class="catalog-note" id="catalogNote">Sizes are game categories and do not represent real-world sizes.</p>
+      <div class="catalog-tabs" role="tablist" aria-label="Size categories">
+        <button type="button" role="tab" id="tab-small" data-category="small" aria-controls="catalogPanel" aria-selected="true">Small</button>
+        <button type="button" role="tab" id="tab-medium" data-category="medium" aria-controls="catalogPanel" aria-selected="false" tabindex="-1">Medium</button>
+        <button type="button" role="tab" id="tab-large" data-category="large" aria-controls="catalogPanel" aria-selected="false" tabindex="-1">Large</button>
+      </div>
+      <div class="catalog-body" role="tabpanel" id="catalogPanel" aria-labelledby="tab-small" tabindex="0"><div class="catalog-grid" id="catalogGrid"></div></div>
+    </dialog>
+
+    <div class="overlay hidden" id="gameOverScreen">
+      <h1 id="gameOverTitle">You were eaten</h1>
+      <div class="big" id="finalScore">0</div>
+      <p id="scoreLabel">Score</p>
+      <dl class="results">
+        <div><dt id="eatenLabel">Creatures eaten</dt><dd id="eatenCount">0</dd></div>
+        <div><dt id="survivalLabel">Survival time</dt><dd id="survivalTime">0:00</dd></div>
+        <div><dt id="sizeLabel">Final size</dt><dd id="finalSize">0</dd></div>
+      </dl>
+      <div class="actions"><button id="restartBtn" type="button">Play Again</button></div>
+    </div>
+
+    <script type="module" src="/demo.ts"></script>
+  </body>
+</html>
