@@ -13,7 +13,7 @@ import { GREAT_WHITE_BODY_AREA } from "./anatomy";
 
 export const SPINE_NODES = 22;
 const NPC_TURN_SECONDS = 0.45;
-const PLAYER_TURN_SECONDS = 0.75;
+const PLAYER_TURN_SECONDS = 0.5;
 
 export type GoldKind =
   | "ryukin" | "oranda" | "moor" | "fantail" | "pearl" | "calico"
@@ -178,6 +178,8 @@ export interface Gold {
   beat: number;
   /** 推力 0..1。0 是收鳍滑行，1 是全力摆尾——"爆发-滑行"全靠它。 */
   thrust: number;
+  /** Smooth player-only blend into a slow, stationary fin/tail cycle. */
+  idle?: number;
   /** 现在是发力段还是滑行段，以及这一段还剩多久。 */
   stroking: boolean;
   strokeUntil: number;
@@ -1199,7 +1201,11 @@ export class World {
     g.turn += (pitchRate - g.turn) * Math.min(1, dt * 7);
     const speed = Math.hypot(vx, g.vy);
     const rel = speed / Math.max(L, 1);
-    g.beat = clamp(0.7 + rel * 8.5 + g.thrust * 0.5, 0.5, 3.6);
+    const idleTarget = settled && g.turnTo === undefined ? 1 : 0;
+    g.idle = (g.idle ?? 0) + (idleTarget - (g.idle ?? 0)) * (1 - Math.exp(-dt * 4));
+    const swimBeat = clamp(0.7 + rel * 8.5 + g.thrust * 0.5, 0.5, 3.6);
+    const idleBeat = 0.48 + 0.06 * Math.sin(time * 0.9);
+    g.beat = swimBeat + (idleBeat - swimBeat) * g.idle;
     g.phase += dt * g.beat * TAU;
     g.thrust += (clamp(speed / maxSpeed, 0.1, 1) - g.thrust) * Math.min(1, dt * 5);
     g.bank += (clamp(g.turn / 1.5, -1, 1) * 0.7 - g.bank) * Math.min(1, dt * 6);

@@ -564,6 +564,9 @@ export class AsciiRenderer {
   private arcTotal = 1;
   private shape = SHAPES.ryukin;
   private animalPhase = 0;
+  private pectoralBreath = 1;
+  private pelvicBreath = 1;
+  private tailBreath = 1;
   private goldId = 0;
   private finTipLeft = 0;
   private finTipRight = 0;
@@ -1088,7 +1091,10 @@ export class AsciiRenderer {
         return true;
       }
     } else {
-      const tail = inTail(s, a, L, tl, shape.body(tl.root) * L);
+      const tailU = clamp((s - tl.root) / Math.max(0.001, tl.span), 0, 1);
+      // The root stays attached while the fan quietly opens and relaxes.
+      const opening = 1 + (this.tailBreath - 1) * smoothstep(0, 0.5, tailU);
+      const tail = inTail(s, a / opening, L, tl, shape.body(tl.root) * L);
       if (tail.hit) {
         this.hitFlag = FLAG_FIN;
         this.hitShade = 0.54 + 0.3 * (1 - tail.edge);
@@ -1127,9 +1133,9 @@ export class AsciiRenderer {
         return true;
       };
       const [pm, pl, pr] = shape.pectoral;
-      if (blade(pm - pl * 0.55, pl * 2.1, pr * 2.05, 0.62)) return true;
+      if (blade(pm - pl * 0.55, pl * 2.1, pr * 2.05 * this.pectoralBreath, 0.62)) return true;
       const [vm, vl, vr] = shape.pelvic;
-      if (blade(vm - vl * 0.35, vl * 2.15, vr * 2.55, 0.6)) return true;
+      if (blade(vm - vl * 0.35, vl * 2.15, vr * 2.55 * this.pelvicBreath, 0.6)) return true;
       if (blade(shape.bodyEnd - 0.13, 0.105, 0.068, 0.58)) return true;
     }
     return false;
@@ -1474,6 +1480,11 @@ export class AsciiRenderer {
     const swim = 0.24 + 0.92 * g.thrust;
     this.shape = SHAPES[g.kind];
     this.animalPhase = g.phase;
+    const idle = g.isPlayer ? (g.idle ?? 0) : 0;
+    // Stagger the fin and tail fan cycles so the idle pose does not pulse rigidly.
+    this.pectoralBreath = 1 + idle * 0.28 * Math.sin(g.phase * 0.75 + 0.65);
+    this.pelvicBreath = 1 + idle * 0.18 * Math.sin(g.phase * 0.75 + 1.6);
+    this.tailBreath = 1 + idle * 0.12 * Math.sin(g.phase * 0.75 - 0.6);
     this.goldId = g.id;
     // 朝右时局部正侧是屏幕上，朝左时相反。这样两种航向都是背朝上、
     // 腹朝下，不会把一条向左游的鱼画成肚皮朝天。
@@ -1482,7 +1493,8 @@ export class AsciiRenderer {
 
     // 波数（每身长的弧度）。位移波长 2π/K ≈ 1.43 个身长。
     const K = 4.4;
-    const amp = L * (g.kind === "octopus" ? 0.006 : 0.035) * swim;
+    const swimAmp = (g.kind === "octopus" ? 0.006 : 0.035) * swim;
+    const amp = L * (swimAmp + (0.024 - swimAmp) * idle);
 
     // 模拟节点记录头部转向后的身体曲线；渲染只叠加尾摆，不把曲线拉直。
     let x = g.nodes[0];
