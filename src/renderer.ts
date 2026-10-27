@@ -567,6 +567,9 @@ export class AsciiRenderer {
   /** 被鱼影压暗的格子。 */
   private goldShadow = new Uint8Array(0);
   private spine = new Float32Array(SPINE_NODES * 2);
+  // Segment directions and lengths are shared by every sample of this fish.
+  private segments = new Float64Array((SPINE_NODES - 1) * 4);
+  private silhouetteReach = 0;
   /** spinePoint() 的复用输出，避免每帧几千次分配。 */
   private pt = { x: 0, y: 0, nx: 0, ny: 0 };
   private arc = new Float32Array(SPINE_NODES);
@@ -977,35 +980,41 @@ export class AsciiRenderer {
    * 结果写进 hit* 字段，返回是否命中。
    */
   private sampleGold(px: number, py: number, L: number) {
-    const { spine, arc } = this;
+    const { spine, arc, segments } = this;
     const N = SPINE_NODES;
     let best = Infinity;
-    let bestS = 0;
-    let bestSign = 1;
-    let bestNx = 0;
-    let bestNy = 0;
+    let bestSegment = 0;
+    let bestU = 0;
     for (let k = 0; k < N - 1; k++) {
+      const offset = k * 4;
       const ax = spine[k * 2];
       const ay = spine[k * 2 + 1];
-      const sx = spine[(k + 1) * 2] - ax;
-      const sy = spine[(k + 1) * 2 + 1] - ay;
-      const len2 = sx * sx + sy * sy || 1;
+      const sx = segments[offset];
+      const sy = segments[offset + 1];
+      const len2 = segments[offset + 2];
       const u = clamp(((px - ax) * sx + (py - ay) * sy) / len2, 0, 1);
       const qx = ax + sx * u;
       const qy = ay + sy * u;
       const d2 = (px - qx) ** 2 + (py - qy) ** 2;
       if (d2 < best) {
         best = d2;
-        const len = Math.sqrt(len2);
-        bestS = (arc[k] + u * len) / this.arcTotal;
-        bestSign = sx * (py - ay) - sy * (px - ax) >= 0 ? 1 : -1;
-        bestNx = (-sy / len) * bestSign;
-        bestNy = (sx / len) * bestSign;
+        bestSegment = k;
+        bestU = u;
       }
     }
+    const offset = bestSegment * 4;
+    const sx = segments[offset], sy = segments[offset + 1], len = segments[offset + 3];
+    const bestS = (arc[bestSegment] + bestU * len) / this.arcTotal;
+    const bestSign = sx * (py - spine[bestSegment * 2 + 1]) - sy * (px - spine[bestSegment * 2]) >= 0 ? 1 : -1;
+    const bestNx = (-sy / len) * bestSign;
+    const bestNy = (sx / len) * bestSign;
 
     const a = Math.sqrt(best);
     const s = bestS;
+    this.hitDist = a;
+    this.hitS = s;
+    this.hitV = a * bestSign;
+    if (a > this.silhouetteReach) return false;
     const shape = this.shape;
     const onBack = bestSign === this.backSign;
     // Side-view fish cross an edge-on pose while turning through vertical.
@@ -1016,9 +1025,6 @@ export class AsciiRenderer {
     // 侧视的核心：背与腹不再共用一个半宽。背线高高拱起，腹线在胸腹处
     // 饱满，往尾柄收得更快；朝左游时两条线仍会翻到正确的屏幕方向。
     const w = (shape.body.back(s) * backWeight + shape.body.belly(s) * (1 - backWeight)) * L;
-    this.hitDist = a;
-    this.hitS = s;
-    this.hitV = a * bestSign;
     const wEdge = w > 0 ? w + L * 0.009 : 0;
 
     if (a <= wEdge) {
@@ -1587,6 +1593,15 @@ export class AsciiRenderer {
     }
     arc[0] = 0;
     for (let k = 1; k < N; k++) {
+      const ax = spine[(k - 1) * 2], ay = spine[(k - 1) * 2 + 1];
+      const bx = spine[k * 2], by = spine[k * 2 + 1];
+      const dx = bx - ax, dy = by - ay;
+      const len2 = dx * dx + dy * dy || 1;
+      const offset = (k - 1) * 4;
+      this.segments[offset] = dx;
+      this.segments[offset + 1] = dy;
+      this.segments[offset + 2] = len2;
+      this.segments[offset + 3] = Math.sqrt(len2);
       arc[k] =
         arc[k - 1] +
         Math.hypot(spine[k * 2] - spine[(k - 1) * 2], spine[k * 2 + 1] - spine[(k - 1) * 2 + 1]);
@@ -1708,6 +1723,23 @@ export class AsciiRenderer {
       this.finTipLeft = L * reachFin * flex * (1 + bank);
       this.tailFlutter = flutter;
 
+      // These bounds include the full body, fins, breathing tail fan and arms.
+      // They only remove empty water; edge coverage still uses all five samples.
+      const shape = this.shape;
+      const bodyRadius = shape.body.maxRadius;
+      const tailRadius = shape === SHAPES.shark ? 0.13 :
+        Math.max(shape.body(shape.tail.root) * TAIL_WAIST * 1.2, shape.tail.flare * shape.tail.span) * Math.max(1, this.tailBreath);
+      const lowerFin = shape === SHAPES.shark ? 0.075 : Math.max(
+        shape.pectoral[2] * 2.05 * this.pectoralBreath,
+        shape.pelvic[2] * 2.55 * this.pelvicBreath, 0.068);
+      const secondDorsal = shape === SHAPES.shark ? 0.02 : shape.marks === "barracuda" ? 0.07 : 0;
+      const radius = shape.marks === "octopus" ? 0.46 : Math.max(
+        bodyRadius + 0.009 + lowerFin,
+        bodyRadius + Math.max(shape.dorsalHeight, secondDorsal), tailRadius);
+      // Retain the original outer limit, including its grid coverage margin.
+      const reach = L * Math.min(0.52, radius);
+      this.silhouetteReach = L * radius;
+
       let minX = Infinity;
       let minY = Infinity;
       let maxX = -Infinity;
@@ -1719,7 +1751,6 @@ export class AsciiRenderer {
         maxY = Math.max(maxY, spine[k * 2 + 1]);
       }
       // 背鳍和腹鳍都在身体轮廓之外，包围盒要把它们一起包住。
-      const reach = L * 0.52;
       const c0 = Math.max(0, Math.floor((minX - reach) / cw));
       const c1 = Math.min(cols - 1, Math.floor((maxX + reach) / cw));
       const r0 = Math.max(0, Math.floor((minY - reach) / ch));

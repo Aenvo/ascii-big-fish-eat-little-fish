@@ -93,6 +93,8 @@ export interface BodySpec {
 }
 
 export interface SideBody {
+  /** Conservative radius bound, in body lengths, for exact renderer culling. */
+  maxRadius: number;
   /** 基准半高，供尾柄和包围盒使用。 */
   (s: number): number;
   /** 从侧线到背鳍基底的距离 / 全长。 */
@@ -117,6 +119,7 @@ export function carpBody(spec: BodySpec): SideBody {
       : 1 - ((1 - wrist) * (1 - r)) / (1 - EDGE_TAIL));
   };
   const body = base as SideBody;
+  body.maxRadius = peak * Math.max(backScale, bellyScale);
   body.back = (s) => base(s) * backScale;
   // 腹部在头段稍收、胸腹段饱满；尾柄处仍与背线使用同一个基准。
   body.belly = (s) => {
@@ -147,6 +150,7 @@ export function sharkBody(spec: BodySpec): SideBody {
     return peak * Math.pow(env, 1.15) * (wrist + (1 - wrist) * (1 - 0.0 * u));
   };
   const body = base as SideBody;
+  body.maxRadius = peak * Math.max(backScale, bellyScale);
   body.back = (s) => base(s) * backScale;
   body.belly = (s) => base(s) * bellyScale * (0.88 + 0.12 * Math.sin(Math.PI * Math.min(1, s / end)));
   return body;
@@ -169,6 +173,8 @@ export const GREAT_WHITE_BODY = ((s: number) => s > 0 && s <= 0.84
   ? Math.max(whiteBack(s), whiteBelly(s)) : 0) as SideBody;
 GREAT_WHITE_BODY.back = s => s > 0 && s <= 0.84 ? whiteBack(s) : 0;
 GREAT_WHITE_BODY.belly = s => s > 0 && s <= 0.84 ? whiteBelly(s) : 0;
+// Round above the Float32 profile knots used by the interpolator.
+GREAT_WHITE_BODY.maxRadius = 0.109;
 
 // Keep contact/food-area estimates in sync with the actual rendered profile.
 export const GREAT_WHITE_BODY_AREA = Array.from({ length: 512 }, (_, i) => {
@@ -185,6 +191,7 @@ export function octopusBody(): SideBody {
   }) as SideBody;
   body.back = body;
   body.belly = body;
+  body.maxRadius = 0.145;
   return body;
 }
 

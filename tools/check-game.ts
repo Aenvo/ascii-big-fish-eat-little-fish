@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { World, visibleFoodRelation, bodiesTouch, type Gold } from "../src/world";
 import { FISH_SCALE, speciesLengthPixels, sizeClass } from "../src/fish-scale";
-import { GREAT_WHITE_BODY, GREAT_WHITE_BODY_AREA } from "../src/anatomy";
+import { carpBody, sharkBody, octopusBody, GREAT_WHITE_BODY, GREAT_WHITE_BODY_AREA } from "../src/anatomy";
 import { CATALOG } from "../src/encyclopedia-data";
 
 for (const [width, height] of [[1280, 800], [760, 820], [390, 844]]) {
@@ -21,6 +21,16 @@ assert(GREAT_WHITE_BODY_AREA > 0.1 && GREAT_WHITE_BODY_AREA < 0.12);
 assert(GREAT_WHITE_BODY.back(0.84) > 0 && GREAT_WHITE_BODY.belly(0.84) > 0, "Tail must join a nonzero peduncle");
 assert(GREAT_WHITE_BODY.back(0.65) < GREAT_WHITE_BODY.back(0.35), "Long rear taper");
 assert(GREAT_WHITE_BODY.belly(0.065) < GREAT_WHITE_BODY.back(0.065), "Snout projects above the jaw");
+
+// Renderer culling bounds must contain both surfaces, including thick species.
+for (const body of [GREAT_WHITE_BODY, octopusBody(),
+  carpBody({ peak: 0.27, end: 0.72, wrist: 0.28, blunt: 0.7, back: 1.08, belly: 1.05 }),
+  sharkBody({ peak: 0.105, end: 0.8, wrist: 0.35, blunt: 0.9 })]) {
+  for (let i = 0; i <= 4096; i++) {
+    assert(body.back(i / 4096) <= body.maxRadius && body.belly(i / 4096) <= body.maxRadius,
+      "A culling bound must never trim the body profile");
+  }
+}
 
 const world = new World();
 world.resize(1280, 800, 12, 18);
