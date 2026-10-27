@@ -1,13 +1,14 @@
 import { AsciiRenderer } from "./renderer";
 import { World, SPINE_NODES } from "./world";
 import { CATALOG, type CatalogEntry, type CatalogSize } from "./encyclopedia-data";
+import { FISH_SCALE } from "./fish-scale";
 
 export type Language = "en" | "zh";
 const copy = {
-  en: { title: "Fish Guide", note: "Sizes and encounters are game conventions: freshwater and marine species do not share one natural habitat. Facts describe the named species or an example.", small: "Small", medium: "Medium", large: "Large", close: "Close", tabs: "Size categories", source: "Source" },
-  zh: { title: "鱼类图鉴", note: "体型分类和相遇是游戏设定；淡水与海洋物种并不生活在同一自然水域。习性资料针对所列物种或代表种。", small: "小型", medium: "中型", large: "大型", close: "关闭", tabs: "体型分类", source: "资料来源" },
+  en: { title: "Fish Guide", small: "Small · ≤30 cm", medium: "Medium · 30–100 cm", large: "Large · 1–2 m", giant: "Giant · >2 m", close: "Close", tabs: "Adult-size reference", source: "Habitat source", sizeSource: "Size source" },
+  zh: { title: "鱼类图鉴", small: "小型 · ≤30 cm", medium: "中型 · 30–100 cm", large: "大型 · 1–2 m", giant: "巨型 · >2 m", close: "关闭", tabs: "成体参考尺寸", source: "习性来源", sizeSource: "尺寸来源" },
 } as const;
-const categories: CatalogSize[] = ["small", "medium", "large"];
+const categories: CatalogSize[] = ["small", "medium", "large", "giant"];
 
 /** Render the same ASCII fish or shoal glyph that is used by the game. */
 function drawPreview(canvas: HTMLCanvasElement, entry: CatalogEntry) {
@@ -34,7 +35,8 @@ function drawPreview(canvas: HTMLCanvasElement, entry: CatalogEntry) {
   world.events = [];
   if (entry.kind) {
     const fish = world.golds[0];
-    const length = 156;
+    // Thumbnails keep more detail than the game, while preserving size ordering.
+    const length = Math.min(250, 76 * Math.pow(FISH_SCALE[entry.kind].lengthCm / 20, 0.4));
     fish.length = length;
     fish.respawnAt = 0;
     fish.heading = 0;
@@ -43,7 +45,7 @@ function drawPreview(canvas: HTMLCanvasElement, entry: CatalogEntry) {
     fish.thrust = 0.55;
     fish.depth = 0.95;
     for (let k = 0; k < SPINE_NODES; k++) {
-      fish.nodes[k * 2] = 237 - k * length / (SPINE_NODES - 1);
+      fish.nodes[k * 2] = (width + length) / 2 - k * length / (SPINE_NODES - 1);
       fish.nodes[k * 2 + 1] = 81;
     }
   } else if (entry.speciesIndex !== undefined) {
@@ -89,7 +91,6 @@ export function setupCatalog(initialLanguage: Language) {
   function updateCopy() {
     const t = copy[language];
     document.getElementById("catalogTitle")!.textContent = t.title;
-    document.getElementById("catalogNote")!.textContent = t.note;
     closeButton.setAttribute("aria-label", t.close);
     tablist.setAttribute("aria-label", t.tabs);
     for (const tab of tabs) tab.textContent = t[tab.dataset.category as CatalogSize];
@@ -116,7 +117,19 @@ export function setupCatalog(initialLanguage: Language) {
       source.target = "_blank";
       source.rel = "noopener noreferrer";
       source.textContent = `${copy[language].source}: ${entry.source.label}`;
-      description.append(heading, habit, source);
+      description.append(heading);
+      if (entry.scale) {
+        const measurement = document.createElement("p");
+        measurement.className = "catalog-length";
+        measurement.textContent = entry.scale.measurement[language];
+        const sizeSource = document.createElement("a");
+        sizeSource.href = entry.scale.source.url;
+        sizeSource.target = "_blank";
+        sizeSource.rel = "noopener noreferrer";
+        sizeSource.textContent = `${copy[language].sizeSource}: ${entry.scale.source.label}`;
+        description.append(measurement, sizeSource);
+      }
+      description.append(habit, source);
       card.append(canvas, description);
       grid.append(card);
       // Only the selected tab's specimens are rendered, once each.

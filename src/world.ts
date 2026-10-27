@@ -8,8 +8,12 @@
  */
 import { angleDiff, clamp, current, rand, randInt, TAU } from "./math";
 import { pickSpecies, SPECIES, SHRIMP_SPECIES_INDEX } from "./species";
+import { LENGTH_EXPONENT, speciesLengthPixels } from "./fish-scale";
+import { GREAT_WHITE_BODY_AREA } from "./anatomy";
 
 export const SPINE_NODES = 22;
+const NPC_TURN_SECONDS = 0.45;
+const PLAYER_TURN_SECONDS = 0.75;
 
 export type GoldKind =
   | "ryukin" | "oranda" | "moor" | "fantail" | "pearl" | "calico"
@@ -24,53 +28,66 @@ const CHASE_PROFILES: Partial<Record<GoldKind, readonly [number, number]>> = {
   fantail: [185, 275], pearl: [145, 220], calico: [180, 270],
 };
 
-/** Eating thresholds and appearance share one size scale. */
+/** Legacy logical-size comparison; runtime relations use rendered body areas. */
 export const EAT_RATIO = 1.1;
-/** Match the exact thresholds used for both visual cues and gameplay. */
+/** Compare growth counters; species lengths are handled by visibleFoodRelation. */
 export function foodRelation(playerSize: number, otherSize: number): "edible" | "danger" | "neutral" {
   if (playerSize > otherSize * EAT_RATIO) return "edible";
   if (otherSize > playerSize * EAT_RATIO) return "danger";
   return "neutral";
 }
 // Side-view body areas at unit length, integrated from the body profiles in
-// renderer.ts. Normalising by these values keeps a thin fish and a deep-bodied
-// fish with the same game size visually comparable without changing their shape.
+// renderer.ts. These measure the visible eating relation only; species are no
+// longer resized to equal areas, which erased their real differences in length.
 const BODY_AREA: Record<GoldKind, number> = {
   ryukin: 0.184163, oranda: 0.180167, moor: 0.170832,
   fantail: 0.140782, pearl: 0.189708, calico: 0.168161,
-  clown: 0.161556, koi: 0.140578, shark: 0.120096,
+  clown: 0.161556, koi: 0.140578, shark: GREAT_WHITE_BODY_AREA,
   angelfish: 0.293876, barracuda: 0.090345, butterfly: 0.239224,
   puffer: 0.295682, tang: 0.195466, lionfish: 0.156848, octopus: 0.107091,
 };
-const BODY_REFERENCE = BODY_AREA.pearl;
-const SIZE_EXPONENT = 0.72;
-// A clear difference in body area is needed in addition to the gameplay ratio.
+// A clear difference in body area is needed before one fish can eat another.
 // Fish with very similar visible size neither eat each other nor chase.
 const BODY_AREA_RATIO = 1.3;
-const EFFECTIVE_EAT_RATIO = Math.max(EAT_RATIO, Math.pow(BODY_AREA_RATIO, 1 / (2 * SIZE_EXPONENT)));
 
 // This aquarium mixes freshwater and marine species, so encounters are a game
 // abstraction rather than a real ecosystem. Only animals known to hunt fish
 // actively pursue the player; a large bottom-feeding koi is not a predator.
 const FISH_PREDATORS: ReadonlySet<GoldKind> = new Set(["shark", "barracuda", "lionfish", "octopus"]);
 
-/** Shared gameplay relation based on diet, tier and visible side-body area. */
+/** Diet and the same visible area determine both eating and chase cues. */
 export function visibleFoodRelation(player: Gold, other: Gold): "edible" | "danger" | "neutral" {
-  const coarse = foodRelation(player.size, other.size);
   const playerArea = player.length * player.length * BODY_AREA[player.kind];
   const otherArea = other.length * other.length * BODY_AREA[other.kind];
-  if (coarse === "edible" && playerArea > otherArea * BODY_AREA_RATIO) return "edible";
-  if (coarse === "danger" && FISH_PREDATORS.has(other.kind) && otherArea > playerArea * BODY_AREA_RATIO) return "danger";
+  if (playerArea > otherArea * BODY_AREA_RATIO) return "edible";
+  if (FISH_PREDATORS.has(other.kind) && otherArea > playerArea * BODY_AREA_RATIO) return "danger";
   return "neutral";
 }
+
+/** Body ellipses exclude empty water ahead of the nose and trailing fin tips. */
+export function bodiesTouch(a: Gold, b: Gold): boolean {
+  const spanA = a.kind === "octopus" ? 0.23 : a.kind === "shark" ? 0.42 : 0.35;
+  const spanB = b.kind === "octopus" ? 0.23 : b.kind === "shark" ? 0.42 : 0.35;
+  const cosA = Math.cos(a.heading), sinA = Math.sin(a.heading);
+  const cosB = Math.cos(b.heading), sinB = Math.sin(b.heading);
+  const dx = b.nodes[0] - cosB * b.length * spanB - (a.nodes[0] - cosA * a.length * spanA);
+  const dy = b.nodes[1] - sinB * b.length * spanB - (a.nodes[1] - sinA * a.length * spanA);
+  const longA = a.length * spanA, longB = b.length * spanB;
+  const highA = a.length * BODY_AREA[a.kind] / (Math.PI * spanA);
+  const highB = b.length * BODY_AREA[b.kind] / (Math.PI * spanB);
+  const relative = b.heading - a.heading;
+  const along = longA + Math.hypot(longB * Math.cos(relative), highB * Math.sin(relative));
+  const across = highA + Math.hypot(longB * Math.sin(relative), highB * Math.cos(relative));
+  return ((dx * cosA + dy * sinA) / along) ** 2 + ((-dx * sinA + dy * cosA) / across) ** 2 <= 1;
+}
 export const FOOD_TIERS = [
-  { name: "小型鱼", size: 8 },
-  { name: "普通鱼", size: 12 },
-  { name: "中型鱼", size: 16 },
-  { name: "章鱼", size: 18 },
-  { name: "锦鲤", size: 20 },
-  { name: "梭鱼", size: 22 },
-  { name: "鲨鱼", size: 36 },
+  { name: "小丑鱼", kind: "clown", size: 6 },
+  { name: "金鱼", kind: "pearl", size: 12 },
+  { name: "狮子鱼", kind: "lionfish", size: 16 },
+  { name: "蓝章鱼", kind: "octopus", size: 18 },
+  { name: "锦鲤", kind: "koi", size: 20 },
+  { name: "大梭鱼", kind: "barracuda", size: 22 },
+  { name: "大白鲨", kind: "shark", size: 36 },
 ] as const;
 const PREY_ROTATION: GoldKind[] = [
   "clown", "angelfish", "butterfly", "puffer", "clown", "puffer", "angelfish", "clown",
@@ -248,8 +265,10 @@ export class World {
   /** Next prey class and the strict minimum size needed to eat it. */
   get nextFoodTier() {
     const size = this.player?.size ?? 12;
-    const tier = FOOD_TIERS.find(tier => size <= tier.size * EFFECTIVE_EAT_RATIO);
-    return tier ? { ...tier, threshold: Math.ceil(tier.size * EFFECTIVE_EAT_RATIO * 10) / 10 } : null;
+    const tiers = FOOD_TIERS.map(tier => ({ ...tier, threshold: this.preyThreshold(tier.kind) }))
+      .sort((a, b) => a.threshold - b.threshold);
+    const tier = tiers.find(tier => size <= tier.threshold);
+    return tier ? { ...tier, threshold: Math.ceil(tier.threshold * 10) / 10 } : null;
   }
   /** Species-specific chase entry/exit distances, scaled for the current tank. */
   getChaseRanges(g: Gold) {
@@ -295,10 +314,19 @@ export class World {
     private fishCount?: number,
   ) {}
 
-  /** Derive every game fish's visual size from the same logical size scale. */
+  /** Species use researched reference lengths; size tracks growth within a species. */
   private gameLength(size: number, kind: GoldKind) {
-    const base = clamp(Math.min(this.width, this.height) * 0.09, 30, 65);
-    return base * Math.pow(size / 12, SIZE_EXPONENT) * Math.sqrt(BODY_REFERENCE / BODY_AREA[kind]);
+    return speciesLengthPixels(kind, this.width, this.height) * Math.pow(size / foodSize(kind), LENGTH_EXPONENT);
+  }
+
+  /** Progress follows the actual rendered silhouette, including deep-bodied fish. */
+  private preyThreshold(kind: GoldKind) {
+    const playerKind = this.player?.kind ?? "pearl";
+    const playerBase = speciesLengthPixels(playerKind, this.width, this.height);
+    const preyBase = speciesLengthPixels(kind, this.width, this.height);
+    const ratio = preyBase * preyBase * BODY_AREA[kind] * BODY_AREA_RATIO /
+      (playerBase * playerBase * BODY_AREA[playerKind]);
+    return foodSize(playerKind) * Math.pow(ratio, 1 / (2 * LENGTH_EXPONENT));
   }
 
   /**
@@ -529,16 +557,14 @@ export class World {
 
   seed() {
     const { width: W, height: H } = this;
-    const minSide = Math.min(W, H);
     // Smaller side-view fish leave room for the rest of the aquarium.
-    const baseLength = clamp(minSide * 0.18, 48, 135);
     const specs = this.goldSpecs.length ? this.goldSpecs : DEFAULT_GOLDS;
     const count = specs.length;
 
     this.golds = [];
     for (let i = 0; i < count; i++) {
       const { kind, size } = specs[i];
-      const length = baseLength * size;
+      const length = speciesLengthPixels(kind, W, H) * size;
       const direction: 1 | -1 = i % 2 === 0 ? 1 : -1;
       // 各占一层水。金鱼本来就各有各的深浅，画面才不会挤成一条。
       const band = clamp(0.22 + (i / Math.max(1, count - 1)) * 0.6 + rand(-0.05, 0.05), 0.2, 0.86);
@@ -587,7 +613,7 @@ export class World {
         wander: rand(0, TAU),
         direction,
         respawnAt: onScreen ? 0 : this.time + rand(0.2, 0.6) + (i - 3) * rand(0.55, 1.05),
-        size: size * 40,
+        size: size * foodSize(kind),
         isPlayer: false,
         mouth: 0,
       };
@@ -987,7 +1013,9 @@ export class World {
       let turned = false;
       if (this.gameMode && !this.gameOver && player) {
         const tail = nodes[(SPINE_NODES - 1) * 2];
-        const visible = hx >= 0 && hx <= W && tail >= 0 && tail <= W && hy >= 0 && hy <= H;
+        // A large shark can see prey once its head enters; waiting for its entire
+        // body to fit would let it swim past the player without ever reacting.
+        const visible = hx >= 0 && hx <= W && hy >= 0 && hy <= H;
         const outOfView = (hx < -L && tail < -L) || (hx > W + L && tail > W + L) || hy < -L || hy > H + L;
         const dx = player.nodes[0] - hx, dy = player.nodes[1] - hy;
         const distance = Math.hypot(dx, dy);
@@ -1035,7 +1063,7 @@ export class World {
       // Direction, body orientation and collision anchor stay in sync at the midpoint.
       let yawing = false;
       if (g.turnTo !== undefined) {
-        g.turnProgress = Math.min(1, (g.turnProgress ?? 0) + dt / 0.45);
+        g.turnProgress = Math.min(1, (g.turnProgress ?? 0) + dt / NPC_TURN_SECONDS);
         if (g.turnProgress >= 0.5 && g.direction !== g.turnTo) {
           g.direction = g.turnTo;
           g.heading = g.direction > 0 ? 0 : Math.PI;
@@ -1153,7 +1181,7 @@ export class World {
       g.turnProgress = 0;
     }
     if (g.turnTo !== undefined) {
-      g.turnProgress = Math.min(1, (g.turnProgress ?? 0) + dt / 0.45);
+      g.turnProgress = Math.min(1, (g.turnProgress ?? 0) + dt / PLAYER_TURN_SECONDS);
       if (g.turnProgress >= 0.5) g.direction = g.turnTo;
       vx = 0;
       if (g.turnProgress >= 1) {
@@ -1208,8 +1236,7 @@ export class World {
     // Check lethal contacts first so a death cannot award a simultaneous bite.
     for (const other of this.golds) {
       if (other === g || other.isPlayer || other.respawnAt > 0 || this.biteLocks.has(other)) continue;
-      const d = Math.hypot(other.nodes[0] - hx, other.nodes[1] - hy);
-      if (d <= (g.length + other.length) * 0.28 && visibleFoodRelation(g, other) === "danger") {
+      if (bodiesTouch(g, other) && visibleFoodRelation(g, other) === "danger") {
         this.gameOver = true;
         this.cancelBite();
         g.mouth = 0;
@@ -1237,8 +1264,7 @@ export class World {
     }
     for (const other of this.golds) {
       if (other === g || other.isPlayer || other.respawnAt > 0 || this.biteLocks.has(other)) continue;
-      const d = Math.hypot(other.nodes[0] - hx, other.nodes[1] - hy);
-      if (d <= (g.length + other.length) * 0.28 && visibleFoodRelation(g, other) === "edible") {
+      if (bodiesTouch(g, other) && visibleFoodRelation(g, other) === "edible") {
         capture(other, true, other.nodes[0], other.nodes[1]);
       }
     }
@@ -1312,7 +1338,7 @@ export class World {
     g.size = Math.min(45, g.size + amount);
     this.score += Math.max(1, Math.round(amount * 4));
     g.length = this.gameLength(g.size, g.kind);
-    this.level = 1 + FOOD_TIERS.slice(1).filter(tier => g.size > tier.size * EFFECTIVE_EAT_RATIO).length;
+    this.level = 1 + FOOD_TIERS.slice(1).filter(tier => g.size > this.preyThreshold(tier.kind)).length;
   }
 
   /** 被吃掉的鱼：立即搬出画面，下一轮再从边缘入场。 */

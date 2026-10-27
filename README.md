@@ -23,7 +23,7 @@ npm run preview
 
 构建结果位于 `dist/`，可部署到静态站点服务。`preview` 用于本地预览构建结果。
 
-保留的游戏模拟诊断脚本会输出追踪、成长及被捕食状态，供开发时检查；它不是完整的自动化断言测试：
+游戏模拟检查覆盖物种尺寸与分类、鲨鱼轮廓、接触判定、玩家移动、吃鱼成长、被捕食及重新开始：
 
 ```sh
 npx --no-install esbuild tools/check-game.ts --bundle --format=esm --platform=node --outfile=tools/check-game.mjs

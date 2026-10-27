@@ -152,6 +152,30 @@ export function sharkBody(spec: BodySpec): SideBody {
   return body;
 }
 
+// Side-view proportions traced from the supplied great-white reference.
+// Distances are fractions of snout-to-tail length, not biological measurements.
+// The long taper and narrow peduncle must not reuse a goldfish-like sine bulge.
+const whiteBack = monotoneCubic([
+  [0, 0], [0.008, 0.008], [0.025, 0.021], [0.065, 0.043], [0.14, 0.067],
+  [0.24, 0.079], [0.35, 0.083], [0.45, 0.077], [0.56, 0.062],
+  [0.66, 0.043], [0.75, 0.025], [0.81, 0.014], [0.84, 0.011],
+]);
+const whiteBelly = monotoneCubic([
+  [0, 0], [0.025, 0.008], [0.065, 0.031], [0.14, 0.066],
+  [0.24, 0.094], [0.35, 0.108], [0.44, 0.106], [0.55, 0.09],
+  [0.66, 0.057], [0.75, 0.029], [0.81, 0.015], [0.84, 0.011],
+]);
+export const GREAT_WHITE_BODY = ((s: number) => s > 0 && s <= 0.84
+  ? Math.max(whiteBack(s), whiteBelly(s)) : 0) as SideBody;
+GREAT_WHITE_BODY.back = s => s > 0 && s <= 0.84 ? whiteBack(s) : 0;
+GREAT_WHITE_BODY.belly = s => s > 0 && s <= 0.84 ? whiteBelly(s) : 0;
+
+// Keep contact/food-area estimates in sync with the actual rendered profile.
+export const GREAT_WHITE_BODY_AREA = Array.from({ length: 512 }, (_, i) => {
+  const s = (i + 0.5) / 512;
+  return (GREAT_WHITE_BODY.back(s) + GREAT_WHITE_BODY.belly(s)) / 512;
+}).reduce((sum, area) => sum + area, 0);
+
 /** Side view of an octopus swimming mantle-first, followed by a smaller head; arms are drawn separately. */
 export function octopusBody(): SideBody {
   const body = ((s: number) => {

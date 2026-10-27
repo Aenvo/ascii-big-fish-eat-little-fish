@@ -23,7 +23,9 @@ const finalScoreEl = document.getElementById("finalScore")!;
 const eatenCountEl = document.getElementById("eatenCount")!;
 const survivalTimeEl = document.getElementById("survivalTime")!;
 const finalSizeEl = document.getElementById("finalSize")!;
-const languageSelect = document.getElementById("languageSelect")! as HTMLSelectElement;
+const languageToggle = document.getElementById("languageToggle")! as HTMLButtonElement;
+const languageLabel = document.getElementById("languageLabel")!;
+let language: Language = "en";
 const catalog = setupCatalog("en");
 
 const translations = {
@@ -51,15 +53,18 @@ const translations = {
   },
 } as const;
 function setLanguage(next: Language) {
+  language = next;
   for (const [id, value] of Object.entries(translations[next])) {
     document.getElementById(id)!.textContent = value;
   }
   document.documentElement.lang = next === "en" ? "en" : "zh-CN";
   document.title = translations[next].startTitle;
-  languageSelect.setAttribute("aria-label", next === "en" ? "Language" : "语言");
+  languageLabel.textContent = next === "en" ? "English" : "中文";
+  languageToggle.setAttribute("aria-label", next === "en" ? "Switch to Chinese" : "切换为英文");
+  languageToggle.lang = next === "en" ? "en" : "zh-CN";
   catalog.setLanguage(next);
 }
-languageSelect.addEventListener("change", () => setLanguage(languageSelect.value === "zh" ? "zh" : "en"));
+languageToggle.addEventListener("click", () => setLanguage(language === "en" ? "zh" : "en"));
 
 let running = false;
 

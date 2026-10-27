@@ -6,7 +6,7 @@
  *   4. 金鱼：逐格超采样光栅化——按光照分块的字符、密集的字形、
  *      偶尔闪过的彩色高光，外加一层慢慢上浮的气泡
  */
-import { TAIL_WAIST, carpBody, sharkBody, octopusBody, inTail, tailRear, tailSpread, type SideBody, type TailSpec } from "./anatomy";
+import { TAIL_WAIST, carpBody, sharkBody, GREAT_WHITE_BODY, octopusBody, inTail, tailRear, tailSpread, type SideBody, type TailSpec } from "./anatomy";
 import { clamp, hash3, smoothstep } from "./math";
 import { buildScenery, type Scenery } from "./scenery";
 import { SPECIES, SHRIMP_SPECIES_INDEX } from "./species";
@@ -362,15 +362,15 @@ const SHAPES: Record<GoldKind, GoldShape> = {
   // 背鳍单独立着（渲染层从背线外立），这里体曲线用 sharkBody。
   shark: {
     label: "鲨鱼",
-    body: sharkBody({ peak: 0.145, end: 0.74, wrist: 0.5, blunt: 0.9, back: 1.0, belly: 0.8 }),
-    bodyEnd: 0.74,
-    pectoral: [0.28, 0.1, 0.12],
-    pelvic: [0.5, 0.055, 0.035],
-    dorsal: [0.31, 0.49],
-    dorsalHeight: 0.15,
-    tail: { root: 0.74, span: 0.25, flare: 0.8, fork: 0.82 },
-    eye: [0.1, 0.14],
-    eyeAcross: 0.35,
+    body: GREAT_WHITE_BODY,
+    bodyEnd: 0.84,
+    pectoral: [0.3, 0.085, 0.075],
+    pelvic: [0.59, 0.045, 0.035],
+    dorsal: [0.37, 0.51],
+    dorsalHeight: 0.105,
+    tail: { root: 0.84, span: 0.16, flare: 0.8, fork: 0.82 },
+    eye: [0.074, 0.09],
+    eyeAcross: 0.68,
     wen: null,
     marks: "none",
     pigment: [105, 122, 130],
@@ -465,6 +465,25 @@ const SHAPES: Record<GoldKind, GoldShape> = {
 };
 
 const KINDS = Object.keys(SHAPES) as GoldKind[];
+
+// Approximate cross-body widths for yaw, in fractions of total length. A thin
+// barracuda or laterally compressed angelfish must not turn into a round goldfish.
+const FRONT_WIDTH: Record<GoldKind, number> = {
+  ryukin: 0.13, oranda: 0.13, moor: 0.14, fantail: 0.10,
+  pearl: 0.145, calico: 0.115, clown: 0.075, koi: 0.07,
+  shark: 0.065, angelfish: 0.035, barracuda: 0.045, butterfly: 0.035,
+  puffer: 0.17, tang: 0.04, lionfish: 0.08, octopus: 0.13,
+};
+const FRONT_PROFILE = Object.fromEntries(KINDS.map(kind => {
+  const shape = SHAPES[kind];
+  let back = 0, belly = 0;
+  for (let i = 0; i <= 64; i++) {
+    const s = shape.bodyEnd * i / 64;
+    back = Math.max(back, shape.body.back(s));
+    belly = Math.max(belly, shape.body.belly(s));
+  }
+  return [kind, { back, belly, center: kind === "octopus" ? 0.2 : shape.bodyEnd * 0.46 }];
+})) as Record<GoldKind, { back: number; belly: number; center: number }>;
 
 function inTriangle(
   px: number, py: number,
@@ -943,17 +962,30 @@ export class AsciiRenderer {
       if (s > 0.25 && s < shape.bodyEnd - 0.035 && across > 0.12 && across < 0.23) darkness += 0.045;
       let shade = 1 - clamp(darkness, 0, 1);
       let flag = onBack ? FLAG_BODY : FLAG_BELLY;
-      if (shape.eye && onBack && finVisibility > 0.35 && s > shape.eye[0] && s < shape.eye[1] &&
-          Math.abs(across - shape.eyeAcross) < 0.2) {
+      const sharkV = a / L * (onBack ? 1 : -1);
+      const gillS = s - sharkV * 0.16;
+      const eyeHit = shape === SHAPES.shark
+        ? ((s - 0.082) / Math.max(0.006, this.cw * 0.65 / L)) ** 2 +
+          ((a / L - 0.031) / Math.max(0.006, this.ch * 0.65 / L)) ** 2 < 1
+        : shape.eye && s > shape.eye[0] && s < shape.eye[1] && Math.abs(across - shape.eyeAcross) < 0.2;
+      const sharkMouth = shape === SHAPES.shark && !onBack && s > 0.035 && s < 0.175 &&
+        Math.abs(a / L - (0.006 + s * 0.23)) < Math.max(0.0025, this.ch * 0.28 / L);
+      if (eyeHit && onBack && finVisibility > 0.35) {
         // 侧视只能看见朝向观众的一只眼睛。
         flag = FLAG_EYE;
         shade = 0;
+      } else if (sharkMouth) {
+        // Subterminal mouth: a sloping jaw line below the projecting snout.
+        flag = FLAG_MARK;
+        shade = 0.18;
       } else if (shape.wen && onBack && s > shape.wen[0] && s < shape.wen[1] && across > 0.34) {
         flag = FLAG_WEN;
         shade = 0.58 + 0.24 * (1 - across);
-      } else if (shape === SHAPES.shark && s > 0.20 && s < 0.29 && across < 0.84 && Math.abs(((s - 0.20) % 0.018) - 0.009) < 0.0035) {
+      } else if (shape === SHAPES.shark && sharkV > -0.075 && sharkV < 0.045 &&
+          gillS > 0.22 && gillS < 0.31 && Math.abs(((gillS - 0.22) % 0.018) - 0.009) < 0.003) {
         // A shark has five gill slits, rather than a bony fish's single gill cover.
-        shade *= 0.52;
+        if (L >= 400) flag = FLAG_MARK;
+        shade = 0.35;
       } else if (shape !== SHAPES.shark && shape.marks !== "octopus" && Math.abs(s - (0.19 + (1 - across) * 0.045)) < 0.009 && across < 0.92) {
         // 鳃盖是一道向后弯的弧。
         shade *= 0.76;
@@ -1021,7 +1053,7 @@ export class AsciiRenderer {
       const t = (s - shape.dorsal[0]) / (shape.dorsal[1] - shape.dorsal[0]);
       // 狮子鱼的背鳍分出多根尖刺；其他鱼维持连续鳍缘。
       const spines = shape.marks === "lionfish" ? 0.24 + 0.76 * Math.pow(Math.abs(Math.sin(t * Math.PI * 7)), 1.5) : 1;
-      const finShape = shape === SHAPES.shark ? (t < 0.36 ? t / 0.36 : (1 - t) / 0.64) : Math.pow(Math.sin(Math.PI * t), 0.72) * (1 - 0.24 * t);
+      const finShape = shape === SHAPES.shark ? (t < 0.62 ? t / 0.62 : (1 - t) / 0.38) : Math.pow(Math.sin(Math.PI * t), 0.72) * (1 - 0.24 * t);
       const height = L * shape.dorsalHeight * finVisibility * finShape * spines;
       const e = a - w;
       if (e >= -L * 0.016 && e <= height) {
@@ -1032,9 +1064,10 @@ export class AsciiRenderer {
     }
 
     // Both the white shark and barracuda have a separate, small second dorsal fin.
-    if (onBack && finVisibility > 0.02 && (shape === SHAPES.shark || shape.marks === "barracuda") && s > 0.66 && s < 0.73) {
-      const t = (s - 0.66) / 0.07;
-      const height = L * (shape === SHAPES.shark ? 0.025 : 0.07) * finVisibility * Math.sin(Math.PI * t);
+    const secondDorsal = shape === SHAPES.shark ? 0.7 : 0.66;
+    if (onBack && finVisibility > 0.02 && (shape === SHAPES.shark || shape.marks === "barracuda") && s > secondDorsal && s < secondDorsal + 0.07) {
+      const t = (s - secondDorsal) / 0.07;
+      const height = L * (shape === SHAPES.shark ? 0.02 : 0.07) * finVisibility * Math.sin(Math.PI * t);
       if (a - w >= -L * 0.01 && a - w <= height) {
         this.hitFlag = FLAG_FIN;
         this.hitShade = 0.64;
@@ -1048,8 +1081,8 @@ export class AsciiRenderer {
     // the broad, trailing fan used for goldfish. Both pointed lobes sweep back.
     if (shape === SHAPES.shark) {
       const u = (s - tl.root) / tl.span;
-      const n = a / (L * 0.17);
-      if (u > 0 && u < 1 && n <= 1 && u >= 0.7 * Math.pow(n, 1.4) && u <= 0.3 + 0.7 * Math.pow(n, 0.9)) {
+      const n = a / (L * (onBack ? 0.13 : 0.115));
+      if (u > 0 && u < 1 && n <= 1 && u >= -0.04 + 0.85 * Math.pow(n, 1.35) && u <= 0.24 + 0.76 * Math.pow(n, 0.72)) {
         this.hitFlag = FLAG_FIN;
         this.hitShade = 0.54 + 0.3 * (1 - u);
         return true;
@@ -1078,9 +1111,9 @@ export class AsciiRenderer {
           this.hitShade = 0.64 + 0.14 * (1 - h);
           return true;
         };
-        if (swept(0.265, 0.335, 0.43, 0.15) ||
-            swept(0.51, 0.57, 0.62, 0.065) ||
-            swept(0.67, 0.71, 0.715, 0.025)) return true;
+        if (swept(0.28, 0.36, 0.435, 0.075) ||
+            swept(0.56, 0.62, 0.67, 0.035) ||
+            swept(0.71, 0.75, 0.775, 0.02)) return true;
         return false;
       }
       const blade = (root: number, len: number, reach: number, shade: number) => {
@@ -1533,24 +1566,40 @@ export class AsciiRenderer {
       // Sample on the existing ASCII grid so the turn never becomes a vector overlay.
       const yaw = g.turnTo !== undefined ? (g.turnProgress ?? 0) : 0;
       const front = Math.sin(Math.PI * yaw);
-      const projection = Math.max(0.18, Math.abs(Math.cos(Math.PI * yaw)));
+      // No residual side view at 90 degrees: it would jump to the opposite side
+      // as direction changes. Both halves meet at the same frontal silhouette.
+      const projection = Math.abs(Math.cos(Math.PI * yaw));
+      const profile = FRONT_PROFILE[g.kind];
+      const frontX = g.nodes[0] - Math.cos(g.heading) * profile.center * L * projection;
+      const frontY = g.nodes[1] + (profile.belly - profile.back) * L * 0.5;
+      const frontRx = Math.max(cw * 0.9, L * FRONT_WIDTH[g.kind]) * front;
+      const frontRy = Math.max(ch * 0.8, L * (profile.back + profile.belly) * 0.5);
+      const eyesVisible = g.kind !== "octopus" ? smoothstep(0.86, 1, front) : 0;
+      const eyeRx = Math.max(cw * 0.38, Math.min(frontRx * 0.16, L * 0.009)) * eyesVisible;
+      const eyeRy = Math.max(ch * 0.28, Math.min(frontRy * 0.10, L * 0.009)) * eyesVisible;
+      const eyeY = g.nodes[1] - profile.back * L * 0.30;
       const sampleProjected = (x: number, y: number) => {
-        // Keep the frontal silhouette legible even for small fish on a coarse grid.
-        const ax = (x - g.nodes[0]) / Math.max(0.001, Math.max(cw * 1.6, L * 0.17) * front);
-        const ay = (y - g.nodes[1]) / Math.max(0.001, Math.max(ch * 1.2, L * 0.23) * front);
-        if (front > 0.18 && ax * ax + ay * ay <= 1) {
-          // Frontal head: paired eyes and a softly shaded body at the pivot.
-          this.hitS = 0.08;
-          this.hitV = y - g.nodes[1];
+        const ax = (x - frontX) / Math.max(0.001, frontRx);
+        const ay = (y - frontY) / frontRy;
+        if (front > 0.001 && ax * ax + ay * ay <= 1) {
+          // The same body's cross-section, with small lateral eyes. Octopuses
+          // swim mantle-first and must not acquire a fictitious pair of fish eyes.
+          this.hitS = g.kind === "octopus" ? 0.18 : 0.12;
+          this.hitV = -(y - g.nodes[1]) * this.backSign;
           this.hitDist = 0;
-          const eyeX = Math.abs(ax) - 0.46;
-          const eyeY = ay + 0.2;
-          this.hitFlag = eyeX * eyeX + eyeY * eyeY < 0.15 ? FLAG_EYE : FLAG_BODY;
-          this.hitShade = this.hitFlag === FLAG_EYE ? 0 : 0.72 - 0.16 * Math.abs(ay);
+          const eyeX = (Math.abs(x - frontX) - frontRx * 0.62) / Math.max(0.001, eyeRx);
+          const eyeDY = (y - eyeY) / Math.max(0.001, eyeRy);
+          const eye = eyesVisible > 0 && eyeX * eyeX + eyeDY * eyeDY <= 1;
+          this.hitFlag = eye ? FLAG_EYE : y > g.nodes[1] ? FLAG_BELLY : FLAG_BODY;
+          this.hitShade = eye ? 0 : 0.76 - 0.16 * Math.abs(ay);
           return true;
         }
+        if (projection < 0.001) {
+          this.hitDist = 0;
+          return false;
+        }
         const hit = this.sampleGold(g.nodes[0] + (x - g.nodes[0]) / projection, y, L);
-        if (front > 0.18 && !hit) this.hitDist = 0;
+        if (front > 0.001 && !hit) this.hitDist = 0;
         return hit;
       };
       const mouthCut = (x: number, y: number) => {
@@ -1763,7 +1812,7 @@ export class AsciiRenderer {
       if (flag === FLAG_EYE) {
         // 侧视眼睛：金色虹膜、深色瞳孔和一粒高光。只用黑方块会像纽扣，
         // 用 @ 又会在小格子里变成空心圈。
-        const e = Math.min(cw, ch) * 0.39;
+        const e = Math.min(cw, ch) * (shape === SHAPES.shark ? 0.75 : 0.39);
         ctx.fillStyle = shape === SHAPES.shark ? "rgba(15,20,25,0.98)" : dark ? "rgba(202,157,74,0.95)" : "rgba(249,183,51,0.96)";
         ctx.fillRect(cx - e, cy - e, e * 2, e * 2);
         ctx.fillStyle = "rgba(20,20,24,0.97)";
