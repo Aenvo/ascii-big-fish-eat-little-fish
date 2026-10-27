@@ -34,6 +34,7 @@ export interface Weed {
 
 /** 一丛珊瑚：几根分叉的枝条，颜色各异。 */
 export interface Coral {
+  kind: "staghorn" | "fan";
   x: number;
   base: number;
   height: number;
@@ -56,51 +57,51 @@ export interface Scenery {
 // 黑水里的草：比白天看水族箱时更亮一档，但仍然是冷的、暗的，
 // 它是背景，不能和鱼抢注意力。
 const WEED_COLORS: [number, number, number][] = [
-  [58, 132, 96],
-  [70, 148, 84],
-  [44, 114, 96],
-  [96, 146, 70],
-  [52, 120, 108],
+  [74, 151, 108],
+  [88, 163, 96],
+  [59, 134, 108],
+  [106, 158, 84],
+  [65, 141, 119],
 ];
 
 // 珊瑚的颜色要丰富：粉、橙、紫、青、黄，是缸底最鲜亮的一抹，
 // 但整体仍压在暗水调下，不和鱼抢。
 const CORAL_COLORS: [number, number, number][] = [
-  [226, 92, 128], // 粉红
-  [240, 128, 56], // 橙
-  [168, 92, 196], // 紫
-  [70, 170, 178], // 青
-  [226, 176, 66], // 黄
-  [224, 92, 92], // 珊瑚红
+  [196, 158, 106], // Staghorn: golden brown, with lighter growing tips.
+  [188, 119, 159], // Sea fan: muted rose and violet.
+  [177, 145, 95],
+  [156, 116, 180],
+  [207, 170, 118],
+  [204, 136, 121],
 ];
 
 export function buildScenery(W: number, H: number): Scenery {
-  const sand = clamp(Math.round(H * 0.055), 20, 96);
+  const sand = clamp(Math.round(H * 0.12), 28, 130);
   const surface = clamp(Math.round(H * 0.05), 14, 70);
 
   const weeds: Weed[] = [];
-  const count = clamp(Math.round(W / 300), 4, 7);
+  const count = clamp(Math.round(W / 190), 5, 11);
   for (let i = 0; i < count; i++) {
     const t = (i + 0.5) / count;
     // 位置带一点随机：均匀排开就成了一排篱笆，水草是一丛一丛的。
     const x = W * (0.04 + t * 0.9) + (hash3(i, 3, 11) - 0.5) * W * 0.11;
-    const h = H * (0.3 + hash3(i, 5, 19) * 0.45);
+    const h = clamp(H * (0.13 + hash3(i, 5, 19) * 0.20), 35, 245);
     const near = 0.42 + hash3(i, 9, 23) * 0.58;
     const c = WEED_COLORS[i % WEED_COLORS.length];
-    // 一丛 3~5 片叶子，高低、歪斜、节奏都不一样，才不像竹篱笆。
-    const n = 3 + Math.round(hash3(i, 21, 47) * 3);
+    // Seagrass: unbranched ribbon leaves emerge in dense basal tufts.
+    const n = 5 + Math.round(hash3(i, 21, 47) * 4);
     const blades: Blade[] = [];
     for (let b = 0; b < n; b++) {
       const r1 = hash3(i * 31 + b, 2, 53);
       const r2 = hash3(i * 31 + b, 5, 59);
       blades.push({
-        offset: (b - (n - 1) / 2) * (9 + r1 * 10),
+        offset: (b - (n - 1) / 2) * (3 + r1 * 5),
         scale: 0.62 + r2 * 0.46,
         // 水流是一个方向，所以叶片都朝同侧倒，但幅度各不相同。
-        lean: 40 + r1 * 96,
+        lean: (b / Math.max(1, n - 1) - 0.42) * h * 0.55 + 12,
         phase: hash3(i * 31 + b, 7, 61) * Math.PI * 2,
         freq: 0.4 + hash3(i * 31 + b, 11, 67) * 0.55,
-        sway: 0.12 + r2 * 0.12,
+        sway: 0.06 + r2 * 0.08,
         weight: r1 > 0.34 ? 2 : 1,
       });
     }
@@ -124,9 +125,10 @@ export function buildScenery(W: number, H: number): Scenery {
     const c = CORAL_COLORS[i % CORAL_COLORS.length];
     const near = 0.45 + hash3(i, 43, 17) * 0.55;
     corals.push({
+      kind: i % 2 === 0 ? "staghorn" : "fan",
       x,
       base: H - sand * (0.2 + hash3(i, 47, 13) * 0.3),
-      height: clamp(H * (0.14 + hash3(i, 53, 19) * 0.1), 55, 190),
+      height: clamp(H * (0.10 + hash3(i, 53, 19) * 0.12), 42, 175),
       color: c,
       alpha: 0.54 + near * 0.38,
       branches: 4 + Math.round(hash3(i, 59, 23) * 2),

@@ -1,6 +1,6 @@
 /**
  * 把 World 画成一张 ASCII 格子图：
- *   1. 深水一样的字符格底板（暗色主题，鱼是画面里唯一的亮东西）
+ *   1. 青蓝到深蓝的海水、流动的水下光束和细沙海底
  *   2. 尾迹场：金鱼和小鱼游过的地方扩散出发着青光的点
  *   3. 小灯鱼：一格一个斜杠/短横，急转时闪一下
  *   4. 金鱼：逐格超采样光栅化——按光照分块的字符、密集的字形、
@@ -27,9 +27,9 @@ const FONT_WEIGHT = 700;
  * 底色：深水的黑，带一点冷蓝。纯黑会把整块画面压死，鱼背的暗部也会
  * 糊进背景里；留一点点蓝，暗部才有"水"的味道。
  */
-const PAPER = "#05080d";
-/** 沙的墨色。黑底上沙要很暗——它是缸底，不是主角。 */
-const SAND_RGB: [number, number, number] = [92, 86, 72];
+const WATER_TOP = "#168f9c";
+const WATER_MIDDLE = "#105275";
+const WATER_DEEP = "#071f39";
 
 const ALPHA_LEVELS = 6;
 const FISH_ALPHAS = [0.26, 0.4, 0.54, 0.68, 0.8];
@@ -44,7 +44,7 @@ const DOT_RGB: [number, number, number][] = [
   [72, 202, 232],
 ];
 // 悬浮微粒刻意画得很淡，只做水的质感，不抢鱼。
-const DOT_BASE_ALPHA = [1, 1, 1, 0.62, 0.95];
+const DOT_BASE_ALPHA = [1, 1, 1, 0.30, 0.95];
 const WAKE = DOT_RGB.length - 1;
 
 // 五花的墨斑，和眼睛的墨色。
@@ -499,6 +499,7 @@ function inTriangle(
 
 /** 可见的深灰字符格网，对齐到设备像素。 */
 export function paintGrid(g: CanvasRenderingContext2D, W: number, H: number, cw: number, ch: number, dpr: number) {
+  g.save();
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.strokeStyle = "rgba(120,170,220,0.030)";
   g.lineWidth = 1;
@@ -514,11 +515,13 @@ export function paintGrid(g: CanvasRenderingContext2D, W: number, H: number, cw:
     g.lineTo(W * dpr, y);
   }
   g.stroke();
+  g.restore();
 }
 
 export class AsciiRenderer {
   private ctx: CanvasRenderingContext2D;
   private bg: HTMLCanvasElement;
+  private lightBeam: HTMLCanvasElement;
   private dpr = 1;
   private width = 0;
   private height = 0;
@@ -603,6 +606,8 @@ export class AsciiRenderer {
     if (!ctx) throw new Error("2D canvas unavailable");
     this.ctx = ctx;
     this.bg = document.createElement("canvas");
+    this.lightBeam = document.createElement("canvas");
+    this.paintLightBeam();
 
     for (let c = 0; c < DOT_RGB.length; c++) {
       const [r, g, b] = DOT_RGB[c];
@@ -684,8 +689,8 @@ export class AsciiRenderer {
     for (let i = 0; i < n; i++) {
       const col = i % this.cols;
       const row = (i / this.cols) | 0;
-      // 一层很淡的悬浮微粒，水才是"水里"而不是黑屏。只有约 9% 的格子有点。
-      this.dotKind[i] = hash3(col, row, 61) < 0.045 ? 4 : 0;
+      // Sparse suspended particles, so the brighter water does not look snowy.
+      this.dotKind[i] = hash3(col, row, 61) < 0.02 ? 4 : 0;
       this.dotPhase[i] = hash3(col, row, 23) * Math.PI * 2;
       this.dotFreq[i] = 0.3 + hash3(col, row, 37) * 1.1;
     }
@@ -697,30 +702,66 @@ export class AsciiRenderer {
     if (!g) return;
     const { width: W, height: H, dpr, cw, ch } = this;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = PAPER;
+    const water = g.createLinearGradient(0, 0, 0, H);
+    water.addColorStop(0, WATER_TOP);
+    water.addColorStop(0.2, "#157b94");
+    water.addColorStop(0.48, WATER_MIDDLE);
+    water.addColorStop(0.76, "#0b3659");
+    water.addColorStop(1, WATER_DEEP);
+    g.fillStyle = water;
     g.fillRect(0, 0, W, H);
-
-    // 光柱：几束从水面斜射下来的白光。白纸上只能靠"比纸更白"来表达光。
-    for (let i = 0; i < 3; i++) {
-      const x0 = W * (0.1 + i * 0.32) + (hash3(i, 2, 5) - 0.5) * W * 0.12;
-      const w0 = W * (0.045 + hash3(i, 3, 7) * 0.055);
-      const slide = H * 0.5;
-      const grd = g.createLinearGradient(x0, 0, x0 + slide, H);
-      grd.addColorStop(0, "rgba(120,190,235,0.055)");
-      grd.addColorStop(0.55, "rgba(96,165,215,0.028)");
-      grd.addColorStop(1, "rgba(80,150,205,0)");
-      g.fillStyle = grd;
-      g.beginPath();
-      g.moveTo(x0, 0);
-      g.lineTo(x0 + w0, 0);
-      g.lineTo(x0 + w0 + slide, H);
-      g.lineTo(x0 + slide, H);
-      g.closePath();
-      g.fill();
-    }
+    const glow = g.createRadialGradient(W * 0.28, -H * 0.08, 0, W * 0.28, -H * 0.08, Math.max(W, H) * 0.85);
+    glow.addColorStop(0, "rgba(113,237,216,0.22)");
+    glow.addColorStop(0.55, "rgba(57,163,190,0.035)");
+    glow.addColorStop(1, "rgba(25,106,148,0)");
+    g.fillStyle = glow;
+    g.fillRect(0, 0, W, H);
 
     paintGrid(g, W, H, cw, ch, dpr);
     this.paintSand(g);
+    this.paintCorals(g);
+  }
+
+  /** A reusable soft, widening shaft; no per-frame blur or image allocation. */
+  private paintLightBeam() {
+    this.lightBeam.width = 128;
+    this.lightBeam.height = 384;
+    const g = this.lightBeam.getContext("2d");
+    if (!g) return;
+    const pixels = g.createImageData(128, 384);
+    for (let y = 0; y < 384; y++) {
+      const depth = y / 383;
+      const halfWidth = 10 + depth * 54;
+      for (let x = 0; x < 128; x++) {
+        const across = (x - 63.5) / halfWidth;
+        const alpha = Math.exp(-across * across * 3.2) * Math.pow(1 - depth, 1.7) * 0.55;
+        const i = (y * 128 + x) * 4;
+        pixels.data[i] = 169;
+        pixels.data[i + 1] = 241;
+        pixels.data[i + 2] = 242;
+        pixels.data[i + 3] = Math.round(alpha * 255);
+      }
+    }
+    g.putImageData(pixels, 0, 0);
+  }
+
+  private drawOceanLight(t: number) {
+    const { ctx, width: W, height: H } = this;
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    for (let i = 0; i < 6; i++) {
+      const phase = i * 1.73;
+      const x = W * (-0.13 + i * 0.245 + Math.sin(t * 0.12 + phase) * 0.035);
+      const width = W * (0.16 + hash3(i, 5, 71) * 0.12);
+      const length = H * (0.85 + hash3(i, 9, 31) * 0.45);
+      ctx.save();
+      ctx.translate(x, -H * 0.04);
+      ctx.rotate(-0.21 + Math.sin(t * 0.095 + phase) * 0.055);
+      ctx.globalAlpha = 0.33 + Math.sin(t * 0.17 + phase) * 0.10;
+      ctx.drawImage(this.lightBeam, -width / 2, 0, width, length);
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   /**
@@ -730,6 +771,24 @@ export class AsciiRenderer {
   private paintSand(g: CanvasRenderingContext2D) {
     const { cols, rows, cw, ch, scenery } = this;
     const top = this.height - scenery.sand;
+    // A cool, softly lit sand shelf with shallow current-made ripples.
+    const floor = g.createLinearGradient(0, top, 0, this.height);
+    floor.addColorStop(0, "rgba(111,155,154,0)");
+    floor.addColorStop(0.25, "rgba(111,155,154,0.16)");
+    floor.addColorStop(1, "rgba(113,151,151,0.55)");
+    g.fillStyle = floor;
+    g.fillRect(0, top, this.width, scenery.sand);
+    g.lineWidth = 0.8;
+    for (let ripple = 0; ripple < 9; ripple++) {
+      const y = top + scenery.sand * (0.12 + ripple * 0.105);
+      g.strokeStyle = `rgba(178,205,191,${0.035 + ripple * 0.009})`;
+      g.beginPath();
+      for (let x = 0; x <= this.width + 12; x += 12) {
+        const py = y + Math.sin(x * 0.009 + ripple * 0.8) * (2 + ripple * 0.4);
+        if (x === 0) g.moveTo(x, py); else g.lineTo(x, py);
+      }
+      g.stroke();
+    }
     g.font = `${FONT_WEIGHT} ${Math.round(cw * 1.5)}px ${this.fontFamily}`;
     g.textAlign = "center";
     g.textBaseline = "middle";
@@ -741,13 +800,15 @@ export class AsciiRenderer {
         const edge = top + (hash3(col, 91, 3) - 0.5) * ch * 1.6 + Math.sin(col * 0.21) * ch * 0.5;
         if (y + ch * 0.6 < edge) continue;
         const depth = clamp((y + ch * 0.5 - edge) / Math.max(1, scenery.sand), 0, 1);
-        const h = hash3(col, row, 71);
-        if (h > 0.42 + depth * 0.5) continue;
-        // 沙粒：小点、逗号、偶尔一颗石子。
-        const glyph = h < 0.06 ? "o" : h < 0.3 ? ":" : h < 0.62 ? "·" : ",";
-        const a = 0.3 + depth * 0.38;
-        g.fillStyle = `rgba(${SAND_RGB[0]},${SAND_RGB[1]},${SAND_RGB[2]},${a.toFixed(2)})`;
-        g.fillText(glyph, col * cw + cw / 2, y + ch / 2 + 1);
+        for (let grain = 0; grain < 3; grain++) {
+          const h = hash3(col * 3 + grain, row, 71);
+          if (h > 0.25 + depth * 0.5) continue;
+          const x = (col + hash3(col, row * 3 + grain, 19)) * cw;
+          const py = y + hash3(col * 3 + grain, row, 37) * ch;
+          const size = 0.6 + h * 0.8;
+          g.fillStyle = `rgba(178,199,184,${(0.12 + depth * 0.24).toFixed(2)})`;
+          g.fillRect(x, py, size, size);
+        }
       }
     }
   }
@@ -765,6 +826,7 @@ export class AsciiRenderer {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.bg, 0, 0);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.drawOceanLight(t);
 
     // 字号 1.5 × 格宽，不是 1.62。等宽字在 1.62 倍上，字宽正好等于格宽，
     // 相邻两个字是**贴着**的：一排 `+` 会连成一条横线。留出这半个像素的
@@ -774,7 +836,6 @@ export class AsciiRenderer {
     ctx.textBaseline = "middle";
 
     this.drawSurface(t);
-    this.drawCorals(t);
     this.drawWeeds(t);
     this.drawDots(t);
     this.markFish(world);
@@ -1993,7 +2054,7 @@ export class AsciiRenderer {
           const row = Math.floor(y / ch);
           if (col < 0 || col >= cols || row < 0 || row >= rows) continue;
           const slope = dx / dy;
-          const glyph = p > 0.94 ? "'" : Math.abs(slope) < 0.45 ? "|" : slope < 0 ? "\\" : "/";
+          const glyph = p > 0.94 ? "'" : Math.abs(slope) < 0.18 ? "|" : slope < 0 ? "\\" : "/";
           const a = w.alpha * (0.4 + 0.6 * (1 - p));
           const i = row * cols + col;
           if (weedStamp[i] !== frame) {
@@ -2010,28 +2071,15 @@ export class AsciiRenderer {
               ctx.fillText(glyph, (col + 1) * cw + cw / 2, row * ch + ch / 2 + 1);
             }
           }
-          // 每隔几格往外挑一片小叶。一条光溜溜的弧线看着像划痕，
-          // 长出叶子才是一株草。
-          if (k % 3 === 1) {
-            const side = k % 6 === 1 ? 1 : -1;
-            const lc = col + side;
-            if (lc >= 0 && lc < cols) {
-              const j = row * cols + lc;
-              if (weedStamp[j] !== frame) {
-                weedStamp[j] = frame;
-                ctx.fillStyle = `rgba(${r},${g},${bl},${(a * 0.72).toFixed(2)})`;
-                ctx.fillText(side > 0 ? "," : "'", lc * cw + cw / 2, row * ch + ch / 2 + 1);
-              }
-            }
-          }
+          // Ribbon leaves stay unbranched; adjacent strokes supply their width.
         }
       }
     }
   }
 
-  /** 鹿角珊瑚：粗根向上分叉，枝梢再分出短枝，以字符格保持背景画风。 */
-  private drawCorals(_t: number) {
-    const { ctx, cols, rows, cw, ch, scenery } = this;
+  /** Cache rigid coral colonies with the seabed; only seagrass moves each frame. */
+  private paintCorals(ctx: CanvasRenderingContext2D) {
+    const { cols, rows, cw, ch, scenery } = this;
     for (const c of scenery.corals) {
       const [r, g, b] = c.color;
       const occupied = new Set<number>();
@@ -2042,9 +2090,10 @@ export class AsciiRenderer {
         if (occupied.has(cell)) return;
         occupied.add(cell);
         const texture = hash3(col, row, c.seed);
-        const glyph = tip ? (texture > 0.5 ? "o" : "*") : texture > 0.65 ? "%" : texture > 0.3 ? "+" : "#";
+        const glyph = tip ? ":" : texture > 0.65 ? "%" : texture > 0.3 ? "+" : "#";
         const alpha = c.alpha * (tip ? 0.8 : 0.68 + texture * 0.22);
-        ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+        const pale = tip && c.kind === "staghorn" ? 0.35 : 0;
+        ctx.fillStyle = `rgba(${Math.round(r + (238 - r) * pale)},${Math.round(g + (225 - g) * pale)},${Math.round(b + (191 - b) * pale)},${alpha.toFixed(2)})`;
         ctx.fillText(glyph, col * cw + cw / 2, row * ch + ch / 2 + 1);
       };
       const branch = (x0: number, y0: number, x1: number, y1: number, thick = false) => {
@@ -2058,6 +2107,32 @@ export class AsciiRenderer {
       };
       const h = c.height;
       const lean = (hash3(c.seed, 2, 7) - 0.5) * h * 0.12;
+      // Colonies attach to a small hard-substrate patch within the sand.
+      ctx.fillStyle = "rgba(31,64,71,0.65)";
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.base + ch * 0.5, h * 0.22, ch * 0.9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      if (c.kind === "fan") {
+        const stemY = c.base - h * 0.18;
+        branch(c.x, c.base, c.x + lean, stemY, true);
+        const tips: { x: number; y: number }[] = [];
+        for (let ray = 0; ray < 9; ray++) {
+          const angle = -1.08 + ray * 0.27 + (hash3(c.seed, ray, 43) - 0.5) * 0.10;
+          const reach = h * (0.7 + hash3(c.seed, ray, 53) * 0.15);
+          const tip = { x: c.x + lean + Math.sin(angle) * reach, y: stemY - Math.cos(angle) * reach };
+          tips.push(tip);
+          branch(c.x + lean, stemY, tip.x, tip.y);
+        }
+        // Fine cross-links suggest a sea fan's open, planar branching network.
+        for (let ray = 0; ray < tips.length - 1; ray++) {
+          for (let ring = 1; ring <= 3; ring++) {
+            const u = 0.3 + ring * 0.18;
+            branch(c.x + lean + (tips[ray].x - c.x - lean) * u, stemY + (tips[ray].y - stemY) * u,
+              c.x + lean + (tips[ray + 1].x - c.x - lean) * u, stemY + (tips[ray + 1].y - stemY) * u);
+          }
+        }
+        continue;
+      }
       branch(c.x, c.base, c.x + lean, c.base - h * 0.92, true);
       for (let i = 0; i < c.branches; i++) {
         const side = i % 2 === 0 ? -1 : 1;
